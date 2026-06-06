@@ -58,6 +58,28 @@ Each entry records what was verified clean and what the git ref is.
 
 ---
 
-## Week 22 — Agent Factory + CrewAI _(in progress)_
+## Week 22 — Agent Factory + CrewAI — `7958dcd` (2026-06-06)
 
-Started: 2026-06-06
+### Scope complete
+- Agent Factory: `AgentSpec`, `AgentRegistry` (versioned deprecation), `scaffold_agent()` → valid Python
+- CrewAI Analytics+QA crew: `AnalyticsQACrew` with mock fallback, dry-run, `analytics_qa_crew_node`
+- Builtin "aria-core" agent seeded at import
+- 46 new tests (agent_factory + analytics_qa_crew)
+
+### Verified clean
+- `uv run pytest -q`: **175 passed**
+
+---
+
+## Week 23 — DSPy + Instructor — `06e9fb8` (2026-06-06)
+
+### Scope complete
+- `aria/optimization/` package: `signatures.py`, `metrics.py`, `optimizer.py`
+- `RouterSignature`, `PRReviewSignature`, `KPISignature` — DSPy Signature subclasses
+- `TaskTypeOutput` — Instructor-validated Pydantic model for router output
+- `routing_accuracy`, `pr_review_quality`, `kpi_quality` — deterministic DSPy metrics
+- `optimize_skill()` + `SkillOptimizationResult` — BootstrapFewShot wrapper, graceful no-LM fallback
+- 46 new tests (all deterministic, no LLM required)
+
+### Verified clean
+- `uv run pytest -q`: **221 passed**

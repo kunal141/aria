@@ -83,7 +83,7 @@ Not a chatbot. Not a copilot. Not a workflow tool.
 | Weeks 3–12 backend (`apps/backend/`) | ✅ DONE — LangGraph, skills, RAG, code intel, memory |
 | Week 13 — LangSmith Tracing + Teams identity | ⏳ NEXT |
 
-**CURRENT STATE: Weeks 3–19 complete and stabilized (git tag: `week-19-stable`). 5 real skills live: KPI, PR review, QA, test-review, CI/CD. 41 deterministic pytest tests passing. All Codex review findings closed. Next: Week 20 — Jira / Delivery Management skill.**
+**CURRENT STATE: Weeks 3–23 complete. 7 skills live (KPI, PR review, QA, test-review, CI/CD, Jira, analytics-qa-crew). Agent Runtime Harness (Week 21), Agent Factory + CrewAI (Week 22), DSPy + Instructor optimisation layer (Week 23). 221 deterministic pytest tests passing. Next: Week 24 — Decision Intelligence (LATS, next-best-action, option ranking).**
 
 ---
 
