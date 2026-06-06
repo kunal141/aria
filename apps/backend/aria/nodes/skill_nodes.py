@@ -1,5 +1,5 @@
 """
-skill_nodes.py — Week 19
+skill_nodes.py — Week 20
 
 Real skill implementations:
   kpi_node         → Week 6  ✅ DONE
@@ -7,7 +7,7 @@ Real skill implementations:
   qa_node          → Week 17 ✅ DONE
   test_review_node → Week 18 ✅ DONE
   ci_cd_node       → Week 19 ✅ DONE
-  jira_node        → Week 20
+  jira_node        → Week 20 ✅ DONE
 """
 from aria.state import ARIAState
 from aria.skills import skill_registry
@@ -16,6 +16,7 @@ from aria.skills.pr_review_skill import PRReviewInput, run as pr_review_run
 from aria.skills.qa_skill import QAInput, run as qa_run
 from aria.skills.test_review_skill import TestReviewInput, run as test_review_run
 from aria.skills.ci_cd_skill import CICDInput, run as ci_cd_run
+from aria.skills.jira_skill import JiraInput, run as jira_run
 from aria.notifications.notifier import notify_ci_cd_failure
 
 
@@ -58,6 +59,14 @@ skill_registry.register(
     version="v1",
     description="Analyses CI/CD pipeline failures — root causes, fix suggestions, deployment safety verdict",
     action_tier=2,
+)
+
+skill_registry.register(
+    name="jira",
+    fn=jira_run,
+    version="v1",
+    description="Drafts structured Jira tickets from natural language — bug/task/story/epic with acceptance criteria",
+    action_tier=3,
 )
 
 
@@ -184,11 +193,37 @@ def ci_cd_node(state: ARIAState) -> dict:
 
 
 def jira_node(state: ARIAState) -> dict:
-    return {
-        "skill_name":      "jira:placeholder",
-        "skill_output":    f"[Week 20] Jira skill will create ticket for: '{state['raw_input'][:80]}'",
+    rk = _routing_kwargs(state)
+    skill_meta = skill_registry.get("jira")
+    result = skill_meta.fn(JiraInput(
+        raw_input=state["raw_input"],
+        task_id=state["task_id"],
+        **rk,
+    ))
+
+    updates: dict = {
+        "skill_name":      f"jira:{result.version}",
+        "skill_output":    result.model_dump_json(indent=2),
         "steps_completed": state["steps_completed"] + ["jira_node"],
     }
+
+    # T4 path: if user explicitly requested ticket creation, register an approval
+    # request now so the gate is populated before Teams card buttons are rendered.
+    # V1: approval_required is always False (draft-only mode).
+    if result.approval_required:
+        try:
+            from aria.governance.approval_gate import request_approval
+            req = request_approval(
+                task_id=state["task_id"],
+                tool_name="jira_create",
+                proposed_action=f"Create Jira ticket: {result.ticket_draft.title}",
+                action_tier="T4",
+            )
+            updates["approval_request_id"] = req.request_id
+        except Exception:
+            pass
+
+    return updates
 
 
 def general_node(state: ARIAState) -> dict:

@@ -249,6 +249,96 @@ def _build_kpi_card(data: dict, task_id: str) -> dict:
     }
 
 
+def _build_jira_card(data: dict, task_id: str) -> dict:
+    """Adaptive Card schema for Jira ticket draft output."""
+    draft    = data.get("ticket_draft", {})
+    title    = draft.get("title", "Untitled ticket")
+    ttype    = draft.get("ticket_type", "task").title()
+    priority = draft.get("priority", "medium").upper()
+    points   = draft.get("story_points")
+    points_str = str(points) if points is not None else "N/A"
+    ac       = draft.get("acceptance_criteria", [])[:3]
+    labels   = draft.get("labels", [])
+    sprint_impact = data.get("sprint_impact", "")
+    blocker  = data.get("blocker_detected", False)
+
+    priority_colors = {
+        "CRITICAL": "Attention",
+        "HIGH":     "Warning",
+        "MEDIUM":   "Default",
+        "LOW":      "Good",
+    }
+    color = priority_colors.get(priority, "Default")
+
+    ac_facts = [
+        {"title": f"AC {i + 1}", "value": crit}
+        for i, crit in enumerate(ac)
+    ]
+
+    body: list = [
+        {"type": "TextBlock", "text": "🎫 ARIA Jira Draft", "weight": "Bolder", "size": "Medium"},
+        {"type": "TextBlock", "text": title, "wrap": True, "weight": "Bolder"},
+        {
+            "type": "FactSet",
+            "facts": [
+                {"title": "Type",     "value": ttype},
+                {"title": "Priority", "value": priority},
+                {"title": "Points",   "value": points_str},
+                {"title": "Task ID",  "value": task_id[:12]},
+            ],
+        },
+    ]
+
+    if blocker and sprint_impact:
+        body.append({
+            "type": "TextBlock",
+            "text": f"⚠️ **Sprint Blocker** — {sprint_impact}",
+            "color": "Attention",
+            "wrap": True,
+        })
+    elif sprint_impact:
+        body.append({"type": "TextBlock", "text": sprint_impact, "wrap": True, "color": color})
+
+    if ac_facts:
+        body += [
+            {"type": "TextBlock", "text": "**Acceptance Criteria**", "weight": "Bolder", "spacing": "Medium"},
+            {"type": "FactSet", "facts": ac_facts},
+        ]
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": body,
+        "actions": [
+            {
+                "type": "Action.Submit",
+                "title": "✅ Create in Jira",
+                "style": "positive",
+                "data": {"aria_action": "approve", "task_id": task_id},
+            },
+            {
+                "type": "Action.Submit",
+                "title": "❌ Discard Draft",
+                "style": "destructive",
+                "data": {"aria_action": "reject", "task_id": task_id},
+            },
+            {
+                "type": "Action.ShowCard",
+                "title": "📋 Labels & Details",
+                "card": {
+                    "type": "AdaptiveCard",
+                    "body": [{
+                        "type": "TextBlock",
+                        "text": f"Labels: {', '.join(labels)}" if labels else "No labels assigned.",
+                        "wrap": True,
+                    }],
+                },
+            },
+        ],
+    }
+
+
 def _build_card(task_type: str, skill_output: Optional[str], task_id: str) -> Optional[dict]:
     """
     Parse skill output and build the right Adaptive Card schema.
@@ -265,6 +355,8 @@ def _build_card(task_type: str, skill_output: Optional[str], task_id: str) -> Op
         return _build_pr_review_card(data, task_id)
     if task_type == "kpi":
         return _build_kpi_card(data, task_id)
+    if task_type == "jira":
+        return _build_jira_card(data, task_id)
     return None
 
 

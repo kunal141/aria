@@ -83,7 +83,7 @@ Not a chatbot. Not a copilot. Not a workflow tool.
 | Weeks 3–12 backend (`apps/backend/`) | ✅ DONE — LangGraph, skills, RAG, code intel, memory |
 | Week 13 — LangSmith Tracing + Teams identity | ⏳ NEXT |
 
-**CURRENT STATE: Week 12 complete. `apps/backend/` has all Weeks 3–12 code. Next: Week 13 — LangSmith deep tracing + ARIA Teams identity.**
+**CURRENT STATE: Weeks 3–19 complete and stabilized (git tag: `week-19-stable`). 5 real skills live: KPI, PR review, QA, test-review, CI/CD. 41 deterministic pytest tests passing. All Codex review findings closed. Next: Week 20 — Jira / Delivery Management skill.**
 
 ---
 
