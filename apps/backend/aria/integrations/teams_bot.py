@@ -305,25 +305,44 @@ class ARIAActivityHandler(ActivityHandler):
         await self._handle_text_message(turn_context)
 
     async def _handle_card_action(self, turn_context: TurnContext, value: dict):
-        """Handle Approve / Reject button presses from Adaptive Cards."""
+        """Handle Approve / Reject button presses from Adaptive Cards.
+
+        Cards submit a task_id; the gate stores requests by request_id.
+        We look up all pending requests for the task, then approve/reject each.
+        """
         action  = value.get("aria_action")
         task_id = value.get("task_id", "unknown")
+        if action not in ("approve", "reject"):
+            await turn_context.send_activity(
+                MessageFactory.text(f"Unknown card action: {action}")
+            )
+            return
         try:
-            from aria.governance.approval_gate import approve, reject, get_pending
-            if action == "approve":
-                approve(task_id)
+            from aria.governance import approval_gate
+            pending = [r for r in approval_gate.get_for_task(task_id) if r.status == "pending"]
+            if not pending:
                 await turn_context.send_activity(
-                    MessageFactory.text(f"Task `{task_id[:12]}` approved.")
+                    MessageFactory.text(
+                        f"No pending approval found for task `{task_id[:12]}`. "
+                        "It may have already been resolved."
+                    )
                 )
-            elif action == "reject":
-                reject(task_id, reason="Rejected via Teams card")
-                await turn_context.send_activity(
-                    MessageFactory.text(f"Task `{task_id[:12]}` rejected.")
+                return
+            from_name = (turn_context.activity.from_property or {}).get("name", "teams-user")
+            resolved = 0
+            for req in pending:
+                if action == "approve":
+                    updated = approval_gate.approve(req.request_id, approved_by=from_name)
+                else:
+                    updated = approval_gate.reject(req.request_id, reason="Rejected via Teams card")
+                if updated:
+                    resolved += 1
+            verb = "approved" if action == "approve" else "rejected"
+            await turn_context.send_activity(
+                MessageFactory.text(
+                    f"Task `{task_id[:12]}`: {resolved} request(s) {verb} by {from_name}."
                 )
-            else:
-                await turn_context.send_activity(
-                    MessageFactory.text(f"Unknown action: {action}")
-                )
+            )
         except Exception as e:
             await turn_context.send_activity(
                 MessageFactory.text(f"Approval gate error: {e}")

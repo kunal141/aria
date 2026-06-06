@@ -1,0 +1,23 @@
+# Workspace coordinator — not a package itself.
+# All runnable code lives in apps/backend (Python) and apps/frontend (Node).
+
+[tool.uv.workspace]
+members = [
+    "apps/backend",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["apps/backend"]

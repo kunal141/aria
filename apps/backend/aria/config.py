@@ -190,6 +190,10 @@ def get_frontier_llm(**kwargs):
     return get_llm(provider=provider, model=model, **kwargs)
 
 
+# Providers that keep data on-premises; external providers are not valid local targets.
+_LOCAL_PROVIDERS = frozenset(["ollama", "vllm"])
+
+
 def get_routed_llm(
     task_type: str = None,
     data_sensitivity: str = None,
@@ -202,36 +206,44 @@ def get_routed_llm(
     ModelRouter-driven LLM selection — Week 16+.
     Routes to fast / smart / frontier based on task signals.
 
-    Privacy enforcement:
-      confidential / restricted → local provider only (ollama or LOCAL_LLM_PROVIDER).
-      If no local provider is configured, emits a warning and falls through.
-      Week 25+: vLLM enforces this at the serving layer.
+    Privacy enforcement (runs BEFORE the broad routing try/except):
+      confidential / restricted must use a local provider (ollama / vllm).
+      External providers (anthropic, openai, etc.) are rejected with ValueError.
+      Local provider init failures propagate — no silent external fallback.
+      Week 25+: vLLM enforces this at the infrastructure layer.
     """
+    # ── Privacy gate — intentionally outside the broad except below ───────────
+    if data_sensitivity in ("confidential", "restricted"):
+        local_provider = os.getenv("LOCAL_LLM_PROVIDER", "").lower()
+        if local_provider:
+            if local_provider not in _LOCAL_PROVIDERS:
+                raise ValueError(
+                    f"LOCAL_LLM_PROVIDER='{local_provider}' is not a local provider. "
+                    f"Confidential/restricted data must use one of: {sorted(_LOCAL_PROVIDERS)}. "
+                    "Set LOCAL_LLM_PROVIDER=ollama or LOCAL_LLM_PROVIDER=vllm."
+                )
+            # Allow init failures to propagate — do NOT silently route to external.
+            return get_llm(provider=local_provider, **kwargs)
+        if os.getenv("LLM_PROVIDER", "").lower() == "ollama":
+            return get_fast_llm(**kwargs)
+        import warnings
+        warnings.warn(
+            f"[ARIA] data_sensitivity='{data_sensitivity}' requires a local provider "
+            "but LOCAL_LLM_PROVIDER is not set. Data will be sent to an external API. "
+            "Set LOCAL_LLM_PROVIDER=ollama (Week 25+: use vLLM) to enforce privacy.",
+            stacklevel=3,
+        )
+        # Fall through to normal routing (v1 limitation, vLLM enforces at Week 25).
+
+    # ── Normal routing — broad except covers ModelRouter import / config errors ─
     try:
         from aria.routing.model_router import route
         decision = route(task_type, data_sensitivity, audience, complexity, input_length)
-
-        # Privacy gate: high-sensitivity data must stay local
-        if data_sensitivity in ("confidential", "restricted"):
-            local_provider = os.getenv("LOCAL_LLM_PROVIDER", "")
-            if local_provider:
-                return get_llm(provider=local_provider, **kwargs)
-            # Ollama is the default local option — use it if available
-            if os.getenv("LLM_PROVIDER", "").lower() == "ollama":
-                return get_fast_llm(**kwargs)
-            import warnings
-            warnings.warn(
-                f"[ARIA] data_sensitivity='{data_sensitivity}' requires a local provider "
-                "but LOCAL_LLM_PROVIDER is not set. Data will be sent to an external API. "
-                "Set LOCAL_LLM_PROVIDER=ollama (Week 25+: use vLLM) to enforce privacy.",
-                stacklevel=3,
-            )
-
         if decision.tier == "fast":
             return get_fast_llm(**kwargs)
         if decision.tier == "frontier":
             return get_frontier_llm(**kwargs)
-        return get_smart_llm(**kwargs)   # "smart" is the default
+        return get_smart_llm(**kwargs)
     except Exception:
         return get_smart_llm(**kwargs)
 
