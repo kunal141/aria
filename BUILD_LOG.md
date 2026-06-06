@@ -83,3 +83,45 @@ Each entry records what was verified clean and what the git ref is.
 
 ### Verified clean
 - `uv run pytest -q`: **221 passed**
+
+---
+
+## Week 24 — Decision Intelligence (LATS) — `396b181` (2026-06-06)
+
+### Scope complete
+- `aria/decision/` package: `models.py`, `scorer.py`, `lats.py`, `engine.py`
+- `DecisionOption`, `DecisionMatrix`, `DecisionResult` — typed contracts
+- `score_option()`, `rank_options()`, `predict_approval()`, `release_risk_score()`
+- `LATSNode` + `LATSTree` + `run_lats()` — UCT-based Language Agent Tree Search
+- `next_best_action()` — greedy / lats / mock entry point
+- 53 new tests. 274 total passing.
+
+---
+
+## Codex review fixes + Week 25 — Agent Control Plane + SLM Classifier
+
+### P1 fixes (critical correctness)
+| Finding | Fix |
+|---|---|
+| Jira T4 approval never resumes execution | `teams_bot.py`: skip T2 for jira; `_execute_jira_after_approval()` called on T4 approve action |
+| Runtime timeout blocks until fn completion | `harness.py`: `executor.shutdown(wait=False)` instead of context manager |
+| Token budget disconnected from graph | `intake.py`: `budget_tracker.init_task()`; `respond.py`: `budget_tracker.consume()` + sets `token_budget_used` |
+| Decision selection inconsistent after enrichment | `engine.py`: enrich all options with `predict_approval()` BEFORE selection |
+
+### P2 fixes (integration gaps)
+| Finding | Fix |
+|---|---|
+| Analytics crew unreachable | Added "analytics_qa" task type to `state.py`, keyword rules in `router.py`, conditional edge in `graph.py` |
+| Decision Intelligence not integrated | `general_node` now imports and runs `next_best_action()` (Pillar 20 live in production graph) |
+| SLM accepts arbitrary task types | `classifier.py`: validate SLM output against `_ALLOWED_TASK_TYPES`, fall back to keyword if invalid |
+| Control plane double-counts versioned agents | `registry.list_agents()` now filters out `@`-keyed versioned aliases |
+
+### P3 fix
+- `CLAUDE.md` + `BUILD_LOG.md` status updated to reflect Week 24 + Week 25 state
+
+### Week 25 scope complete
+- `aria/control_plane/`: `models.py`, `monitor.py`, `control_plane.py` — `AgentMonitor` + `ControlPlane.report()`
+- `aria/slm/`: `classifier.py` — `SLMClassifier` with keyword backend, vLLM-ready interface
+
+### Verified clean
+- `uv run pytest -q`: **338 passed**

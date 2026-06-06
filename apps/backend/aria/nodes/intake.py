@@ -39,9 +39,15 @@ def intake(state: ARIAState) -> dict:
     except Exception:
         pass   # security logging must never break task execution
 
+    # Wire token budget — BudgetTracker is the authoritative store;
+    # ARIAState carries the values for observability only.
+    from aria.runtime.budget import budget_tracker
+    effective_budget = budget_tracker.init_task(task_id, state.get("token_budget"))
+
     return {
         "task_id":          task_id,
         "task_status":      "routing",
         "steps_completed":  ["intake"],
         "data_sensitivity": sensitivity,
+        "token_budget":     effective_budget,
     }

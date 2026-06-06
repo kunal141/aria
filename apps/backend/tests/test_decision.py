@@ -414,3 +414,34 @@ def test_next_best_action_reasoning_nonempty():
     a, b = _two_options()
     r = next_best_action("t", "desc", [a, b])
     assert len(r.matrix.reasoning) > 0
+
+
+# ── P1.4: selection is internally consistent after enrichment ─────────────────
+
+def test_selection_score_matches_matrix_score():
+    """
+    The selected option's score must equal the score of the same option as it
+    appears in the matrix (both enriched by predict_approval before selection).
+    """
+    a, b = _two_options()
+    r = next_best_action("t", "consistency", [a, b], method="greedy")
+    selected_id = r.selected_option.option_id
+    matrix_opt  = next(o for o in r.matrix.options if o.option_id == selected_id)
+    # Scores must be identical — same enriched object
+    assert score_option(r.selected_option) == pytest.approx(score_option(matrix_opt))
+    assert r.selected_option.approval_likelihood == pytest.approx(matrix_opt.approval_likelihood)
+
+
+def test_enrichment_happens_before_selection():
+    """
+    An option with artificially high approval_likelihood that predict_approval
+    would lower must still lose to a genuinely better option.
+    opt-X: high supplied approval_likelihood but high risk/low confidence (predict_approval gives ~0)
+    opt-Y: modest numbers but consistent (predict_approval is positive)
+    """
+    opt_x = _opt(option_id="opt-X", confidence=0.1, risk_score=0.9,
+                 cost_estimate="high", approval_likelihood=0.99)
+    opt_y = _opt(option_id="opt-Y", confidence=0.8, risk_score=0.1,
+                 cost_estimate="low", approval_likelihood=0.5)
+    r = next_best_action("t", "consistency", [opt_x, opt_y], method="greedy")
+    assert r.selected_option.option_id == "opt-Y"

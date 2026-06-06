@@ -19,12 +19,13 @@ def _route_to_skill(state: ARIAState) -> str:
     The returned string must match a registered node name exactly.
     """
     return {
-        "pr_review": "pr_review_node",
-        "kpi":       "kpi_node",
-        "qa":          "qa_node",
-        "test_review": "test_review_node",
-        "ci_cd":       "ci_cd_node",
-        "jira":      "jira_node",
+        "pr_review":    "pr_review_node",
+        "kpi":          "kpi_node",
+        "qa":           "qa_node",
+        "test_review":  "test_review_node",
+        "ci_cd":        "ci_cd_node",
+        "jira":         "jira_node",
+        "analytics_qa": "analytics_qa_crew_node",
     }.get(state.get("task_type", "general"), "general_node")
 
 
@@ -55,13 +56,14 @@ def build_graph():
         "router",           # from this node
         _route_to_skill,    # call this function to decide next node
         {                   # map return values to node names
-            "pr_review_node": "pr_review_node",
-            "kpi_node":       "kpi_node",
-            "qa_node":          "qa_node",
-            "test_review_node": "test_review_node",
-            "ci_cd_node":       "ci_cd_node",
-            "jira_node":      "jira_node",
-            "general_node":   "general_node",
+            "pr_review_node":         "pr_review_node",
+            "kpi_node":               "kpi_node",
+            "qa_node":                "qa_node",
+            "test_review_node":       "test_review_node",
+            "ci_cd_node":             "ci_cd_node",
+            "jira_node":              "jira_node",
+            "analytics_qa_crew_node": "analytics_qa_crew_node",
+            "general_node":           "general_node",
         }
     )
 

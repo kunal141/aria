@@ -100,3 +100,66 @@ def test_routing_reason_always_returned():
     for text in ["review my PR", "CTR dropped", "build failed", "general query"]:
         skill, reason = _keyword_classify(text)
         assert reason, f"Empty routing_reason for {text!r} (skill={skill!r})"
+
+
+# ── P2.5: analytics_qa routing ────────────────────────────────────────────────
+
+def test_analytics_crew_keyword_routes_to_analytics_qa():
+    skill, _ = _keyword_classify("Use the analytics crew to investigate the CTR drop")
+    assert skill == "analytics_qa"
+
+
+def test_deep_investigate_routes_to_analytics_qa():
+    skill, _ = _keyword_classify("Deep investigate the KPI anomaly with multi-agent analysis")
+    assert skill == "analytics_qa"
+
+
+def test_analytics_qa_beats_kpi_when_crew_requested():
+    skill, _ = _keyword_classify("analytics_qa investigation of the notification CTR")
+    assert skill == "analytics_qa"
+
+
+def test_kpi_keyword_alone_still_routes_to_kpi():
+    skill, _ = _keyword_classify("CTR dropped 18% this week")
+    assert skill == "kpi"
+
+
+# ── P2.6: general_node uses Decision Intelligence ─────────────────────────────
+
+def test_general_node_uses_decision_intelligence():
+    """general_node must import and use aria.decision (P2.6 integration fix)."""
+    from aria.nodes.skill_nodes import general_node
+    import json
+
+    state = {
+        "task_id":         "t-general-di",
+        "raw_input":       "What should ARIA do with this vague input?",
+        "steps_completed": ["intake", "router"],
+    }
+    result = general_node(state)
+    assert result["skill_name"].startswith("decision:")
+    parsed = json.loads(result["skill_output"])
+    assert "selected_option" in parsed
+    assert "matrix" in parsed
+
+
+# ── P2.8: registry list_agents skips versioned aliases ────────────────────────
+
+def test_registry_list_agents_excludes_versioned_aliases():
+    """list_agents() must not include deprecated @v1 alias keys (P2.8 fix)."""
+    from aria.factory.registry import AgentRegistry
+    from aria.factory.agent_spec import AgentSpec, AgentCapability
+
+    r = AgentRegistry()
+    spec_v1 = AgentSpec(name="dupe-agent", role="R", goal="G", backstory="B",
+                        capabilities=[], status="active", version="v1")
+    spec_v2 = AgentSpec(name="dupe-agent", role="R", goal="G", backstory="B",
+                        capabilities=[], status="sandbox", version="v2")
+    r.register(spec_v1)
+    r.register(spec_v2)
+
+    agents = r.list_agents()
+    names  = [a.name for a in agents]
+    assert "dupe-agent" in names
+    assert "dupe-agent@v1" not in names
+    assert len([n for n in names if n.startswith("dupe-agent")]) == 1

@@ -9,7 +9,7 @@ class ARIAState(TypedDict):
     # ── Routing ───────────────────────────────────────────────────────────────
     # Literal = only these exact strings are valid. A typo like "pr_reveiw"
     # is caught by the type checker before the code ever runs.
-    task_type: Optional[Literal["pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "general", "unknown"]]
+    task_type: Optional[Literal["pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "analytics_qa", "general", "unknown"]]
     task_status: Literal["pending", "routing", "executing", "done", "failed"]
 
     # ── Traceability ──────────────────────────────────────────────────────────

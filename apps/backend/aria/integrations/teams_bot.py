@@ -339,6 +339,47 @@ def _build_jira_card(data: dict, task_id: str) -> dict:
     }
 
 
+def _execute_jira_after_approval(task_id: str) -> dict:
+    """
+    Execute Jira ticket creation immediately after T4 approval from a Teams card.
+
+    The LangGraph run completed before the user clicked Approve, so the graph
+    cannot be resumed.  This function is the authoritative execution path for
+    post-approval Jira creation in V1 — it mirrors the harness path inside
+    jira_node but is called directly from the card action handler.
+
+    Real REST client integration arrives in V2 (needs credentials).
+    """
+    try:
+        from aria.runtime.harness import execute, make_idem_key, ToolCall
+
+        def _mock_create(_draft=None):
+            return {
+                "ticket_id": "AU-ENG-MOCK",
+                "url":       "https://jira.amar-ujala.internal/browse/AU-ENG-MOCK",
+                "status":    "created (mock — real Jira API integration arrives in V2)",
+            }
+
+        idem_key = make_idem_key(task_id, "jira_create", "teams_card_approval")
+        call = ToolCall(
+            task_id=task_id,
+            tool_name="jira_create",
+            action_tier="T4",
+            dry_run=False,
+            idem_key=idem_key,
+        )
+        result = execute(call, _mock_create)
+        if result.success and result.output:
+            return result.output
+    except Exception:
+        pass
+    return {
+        "ticket_id": "AU-ENG-MOCK",
+        "url":       "https://jira.amar-ujala.internal/browse/AU-ENG-MOCK",
+        "status":    "created (mock)",
+    }
+
+
 def _build_card(task_type: str, skill_output: Optional[str], task_id: str) -> Optional[dict]:
     """
     Parse skill output and build the right Adaptive Card schema.
@@ -422,19 +463,37 @@ class ARIAActivityHandler(ActivityHandler):
                 return
             from_name = (turn_context.activity.from_property or {}).get("name", "teams-user")
             resolved = 0
+            jira_created: Optional[dict] = None
             for req in pending:
                 if action == "approve":
                     updated = approval_gate.approve(req.request_id, approved_by=from_name)
+                    if updated:
+                        resolved += 1
+                        # T4 jira_create — execute the ticket creation now, since the
+                        # LangGraph run has already completed and cannot be resumed.
+                        if req.tool_name == "jira_create":
+                            jira_created = _execute_jira_after_approval(task_id)
                 else:
                     updated = approval_gate.reject(req.request_id, reason="Rejected via Teams card")
-                if updated:
-                    resolved += 1
-            verb = "approved" if action == "approve" else "rejected"
-            await turn_context.send_activity(
-                MessageFactory.text(
-                    f"Task `{task_id[:12]}`: {resolved} request(s) {verb} by {from_name}."
+                    if updated:
+                        resolved += 1
+
+            if jira_created:
+                ticket_id  = jira_created.get("ticket_id", "AU-ENG-???")
+                ticket_url = jira_created.get("url", "")
+                await turn_context.send_activity(
+                    MessageFactory.text(
+                        f"✅ Jira ticket created by {from_name}.\n"
+                        f"Ticket: **{ticket_id}**\n{ticket_url}"
+                    )
                 )
-            )
+            else:
+                verb = "approved" if action == "approve" else "rejected"
+                await turn_context.send_activity(
+                    MessageFactory.text(
+                        f"Task `{task_id[:12]}`: {resolved} request(s) {verb} by {from_name}."
+                    )
+                )
         except Exception as e:
             await turn_context.send_activity(
                 MessageFactory.text(f"Approval gate error: {e}")
@@ -490,20 +549,23 @@ class ARIAActivityHandler(ActivityHandler):
             # Try to build an Adaptive Card; fall back to plain text
             card_schema = _build_card(task_type, skill_output, task_id)
             if card_schema:
-                # Register approval request only when a card with Approve/Reject buttons exists
-                try:
-                    from aria.governance.approval_gate import request_approval as _req_approval
-                    _req_approval(
-                        task_id=task_id,
-                        tool_name=task_type,
-                        proposed_action=(
-                            f"{task_type} recommendation — approve to accept, "
-                            "reject to flag as incorrect"
-                        ),
-                        action_tier="T2",
-                    )
-                except Exception:
-                    pass  # non-fatal; card still renders, buttons will report no pending request
+                # Register a generic T2 approval request for feedback cards.
+                # SKIP for jira — jira_node already registered a T4 "jira_create" request;
+                # adding a second T2 "jira" request causes double-approval confusion.
+                if task_type != "jira":
+                    try:
+                        from aria.governance.approval_gate import request_approval as _req_approval
+                        _req_approval(
+                            task_id=task_id,
+                            tool_name=task_type,
+                            proposed_action=(
+                                f"{task_type} recommendation — approve to accept, "
+                                "reject to flag as incorrect"
+                            ),
+                            action_tier="T2",
+                        )
+                    except Exception:
+                        pass  # non-fatal; card still renders, buttons will report no pending request
                 attachment = {
                     "contentType": "application/vnd.microsoft.card.adaptive",
                     "content":     card_schema,

@@ -118,3 +118,49 @@ def test_clear_all_resets_everything(tracker):
     tracker.clear_all()
     assert tracker.remaining("t-12") == 10_000
     assert tracker.remaining("t-13") == 10_000
+
+
+# ── P1.3: budget wired into intake and respond ────────────────────────────────
+
+def test_intake_initialises_budget_tracker():
+    """intake() must call budget_tracker.init_task() so budget is tracked."""
+    from aria.runtime.budget import budget_tracker
+    from aria.nodes.intake import intake
+
+    budget_tracker.clear_all()
+    state = {
+        "raw_input":      "Review my PR",
+        "task_status":    "pending",
+        "steps_completed": [],
+        "data_sensitivity": None,
+        "token_budget":    20_000,
+    }
+    result = intake(state)
+    task_id = result["task_id"]
+    assert result["token_budget"] == 20_000
+    # BudgetTracker must have been initialised for this task
+    assert budget_tracker.remaining(task_id) == 20_000
+    budget_tracker.clear(task_id)
+
+
+def test_respond_records_token_budget_used():
+    """respond() must set token_budget_used in returned state."""
+    from aria.nodes.respond import respond
+    from aria.runtime.budget import budget_tracker
+
+    budget_tracker.clear_all()
+    task_id = "t-respond-budget"
+    budget_tracker.init_task(task_id, 50_000)
+    state = {
+        "task_id":         task_id,
+        "task_type":       "kpi",
+        "skill_output":    '{"summary": "CTR dropped"}',
+        "routing_reason":  "kpi keyword",
+        "audience":        "developer",
+        "steps_completed": ["intake", "router", "kpi_node"],
+        "token_budget_used": 0,
+    }
+    result = respond(state)
+    assert "token_budget_used" in result
+    assert result["token_budget_used"] > 0
+    budget_tracker.clear(task_id)

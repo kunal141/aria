@@ -240,3 +240,19 @@ def test_tool_result_defaults():
     assert r.was_cached is False
     assert r.output is None
     assert r.error is None
+
+
+# ── P1.2: timeout must bound CALLER latency, not fn completion time ────────────
+
+def test_execute_timeout_bounds_caller_latency():
+    """
+    shutdown(wait=False) is required: the caller must return in ~timeout_s,
+    not at fn-completion time.  A 0.1 s timeout on a 3 s fn must return in < 2 s.
+    """
+    call = ToolCall(task_id="t-latency", tool_name="knowledge_search", timeout_s=0.1)
+    start = time.monotonic()
+    result = execute(call, _slow_fn)
+    elapsed = time.monotonic() - start
+    assert result.success is False
+    assert "timeout" in (result.error or "").lower()
+    assert elapsed < 2.0, f"Timeout did not bound caller latency: elapsed={elapsed:.2f}s"

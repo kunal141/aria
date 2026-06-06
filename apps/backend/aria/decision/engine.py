@@ -56,31 +56,25 @@ def next_best_action(
             method="greedy",
         )
 
+    # Enrich ALL options with predicted approval likelihoods BEFORE selection
+    # so selection and ranking operate on consistent, final scores.
+    enriched = [
+        opt.model_copy(update={"approval_likelihood": predict_approval(opt)})
+        for opt in options
+    ]
+
     iterations = 0
 
     if method == "mock":
-        selected = options[0]
-        ranked   = options
+        selected = enriched[0]
 
     elif method == "lats":
-        selected, iterations = run_lats(options, max_iterations=max_iterations)
-        ranked = rank_options(options)
+        selected, iterations = run_lats(enriched, max_iterations=max_iterations)
 
     else:  # greedy
-        ranked   = rank_options(options)
-        selected = ranked[0]
+        selected = rank_options(enriched)[0]
 
-    # Enrich options with predicted approval likelihoods
-    enriched = []
-    for opt in options:
-        approval = predict_approval(opt)
-        enriched.append(opt.model_copy(update={"approval_likelihood": approval}))
-
-    # Find the enriched version of selected
-    enriched_selected = next(
-        (e for e in enriched if e.option_id == selected.option_id),
-        selected,
-    )
+    enriched_selected = selected
 
     matrix = DecisionMatrix(
         task_id=task_id,

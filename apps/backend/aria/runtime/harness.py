@@ -191,15 +191,25 @@ def _check_permission(call: ToolCall):
 
 
 def _run_with_timeout(fn: Callable, args: tuple, kwargs: dict, timeout_s: float) -> Any:
-    """Run fn(*args, **kwargs) with a wall-clock timeout. Cross-platform (no SIGALRM)."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(fn, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout_s)
-        except concurrent.futures.TimeoutError:
-            raise TimeoutError(
-                f"Tool execution exceeded {timeout_s}s timeout"
-            )
+    """
+    Run fn(*args, **kwargs) with a wall-clock timeout.  Cross-platform (no SIGALRM).
+
+    shutdown(wait=False) is critical: the context-manager default blocks until the
+    worker thread completes even after TimeoutError, negating the timeout bound.
+    With wait=False the caller returns as soon as the timeout fires; the thread
+    continues in the background and is cleaned up by the GC.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn, *args, **kwargs)
+    try:
+        result = future.result(timeout=timeout_s)
+        executor.shutdown(wait=False)
+        return result
+    except concurrent.futures.TimeoutError:
+        executor.shutdown(wait=False)
+        raise TimeoutError(
+            f"Tool execution exceeded {timeout_s}s timeout"
+        )
 
 
 def _audit(

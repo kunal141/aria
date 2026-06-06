@@ -39,6 +39,9 @@ _RULES = [
      "ci_cd", "Input mentions CI/CD or a deployment pipeline"),
     (["jira", "ticket", "story", "sprint", "backlog", "blocker", "epic"],
      "jira", "Input refers to Jira, a ticket, or sprint management"),
+    (["analytics crew", "analytics_qa", "deep investigate", "multi-agent analysis",
+      "deep dive kpi", "deep dive into kpi"],
+     "analytics_qa", "Input requests deep multi-agent analytics investigation"),
     (["kpi", "metric", "ctr", "click-through", "drop", "spike", "anomaly",
       "feed performance", "recommendation quality"],
      "kpi", "Input refers to a KPI, metric, or performance indicator"),
@@ -89,7 +92,7 @@ Respond with ONLY valid JSON, no markdown:
         | StrOutputParser()
     )
 
-VALID_TYPES = {"pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "general", "unknown"}
+VALID_TYPES = {"pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "analytics_qa", "general", "unknown"}
 
 
 def router(state: ARIAState) -> dict:

@@ -291,8 +291,41 @@ def analytics_qa_crew_node(state: ARIAState) -> dict:
 
 
 def general_node(state: ARIAState) -> dict:
+    """
+    Fallback node for unclassified tasks.
+    Runs Decision Intelligence (LATS) to rank available skills and recommend
+    the most likely useful one — T2 recommendation, never executes autonomously.
+    """
+    from aria.decision import next_best_action, DecisionOption
+
+    options = [
+        DecisionOption(
+            option_id="kpi",
+            action="Route to KPI Investigation skill",
+            rationale="Input may describe a metric anomaly or data quality issue",
+            risk_score=0.1, confidence=0.5, cost_estimate="low", approval_likelihood=0.8,
+        ),
+        DecisionOption(
+            option_id="pr_review",
+            action="Route to PR Review skill",
+            rationale="Input may describe a pull request or code change",
+            risk_score=0.1, confidence=0.5, cost_estimate="low", approval_likelihood=0.8,
+        ),
+        DecisionOption(
+            option_id="clarify",
+            action="Ask the user to clarify their request",
+            rationale="Input is ambiguous — requesting more information is the safest action",
+            risk_score=0.0, confidence=0.9, cost_estimate="low", approval_likelihood=0.95,
+        ),
+    ]
+    result = next_best_action(
+        task_id=state["task_id"],
+        task_description=state["raw_input"],
+        options=options,
+        method="greedy",
+    )
     return {
-        "skill_name":      "general:placeholder",
-        "skill_output":    f"[Week 4] General handler: '{state['raw_input'][:80]}'",
+        "skill_name":      f"decision:{result.version}",
+        "skill_output":    result.model_dump_json(indent=2),
         "steps_completed": state["steps_completed"] + ["general_node"],
     }

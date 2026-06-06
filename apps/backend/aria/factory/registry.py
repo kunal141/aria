@@ -56,8 +56,12 @@ class AgentRegistry:
         status: Optional[AgentStatus] = None,
         capability: Optional[str] = None,
     ) -> list[AgentSpec]:
-        """List agents, optionally filtered by status or capability (skill_name)."""
-        agents = list(self._agents.values())
+        """
+        List live agents, optionally filtered by status or capability (skill_name).
+        Versioned aliases (keys containing "@", e.g. "agent@v1") are internal
+        history records and are excluded from this view.
+        """
+        agents = [a for k, a in self._agents.items() if "@" not in k]
         if status:
             agents = [a for a in agents if a.status == status]
         if capability:
