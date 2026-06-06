@@ -395,8 +395,10 @@ class ARIAActivityHandler(ActivityHandler):
             task_id      = result.get("task_id", "unknown")
             response_text = result.get("response", "Task complete.")
 
-            # Register an approval request so card buttons have something to resolve
-            if skill_output and not skill_output.startswith("["):
+            # Try to build an Adaptive Card; fall back to plain text
+            card_schema = _build_card(task_type, skill_output, task_id)
+            if card_schema:
+                # Register approval request only when a card with Approve/Reject buttons exists
                 try:
                     from aria.governance.approval_gate import request_approval as _req_approval
                     _req_approval(
@@ -409,11 +411,7 @@ class ARIAActivityHandler(ActivityHandler):
                         action_tier="T2",
                     )
                 except Exception:
-                    pass  # non-fatal; card still sent, buttons will report no pending request
-
-            # Try to build an Adaptive Card; fall back to plain text
-            card_schema = _build_card(task_type, skill_output, task_id)
-            if card_schema:
+                    pass  # non-fatal; card still renders, buttons will report no pending request
                 attachment = {
                     "contentType": "application/vnd.microsoft.card.adaptive",
                     "content":     card_schema,
