@@ -226,14 +226,12 @@ def get_routed_llm(
             return get_llm(provider=local_provider, **kwargs)
         if os.getenv("LLM_PROVIDER", "").lower() == "ollama":
             return get_fast_llm(**kwargs)
-        import warnings
-        warnings.warn(
-            f"[ARIA] data_sensitivity='{data_sensitivity}' requires a local provider "
-            "but LOCAL_LLM_PROVIDER is not set. Data will be sent to an external API. "
-            "Set LOCAL_LLM_PROVIDER=ollama (Week 25+: use vLLM) to enforce privacy.",
-            stacklevel=3,
+        raise PermissionError(
+            f"data_sensitivity='{data_sensitivity}' requires a local provider "
+            "but LOCAL_LLM_PROVIDER is not set. "
+            "Set LOCAL_LLM_PROVIDER=ollama to process this request locally. "
+            "(Week 25+: vLLM enforces this at the infrastructure layer.)"
         )
-        # Fall through to normal routing (v1 limitation, vLLM enforces at Week 25).
 
     # ── Normal routing — broad except covers ModelRouter import / config errors ─
     try:
