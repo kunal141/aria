@@ -1,0 +1,102 @@
+{
+  "kpi::0": {
+    "overall": 3.0,
+    "dimensions": {
+      "hypothesis_quality": 3,
+      "domain_relevance": 3,
+      "evidence_specificity": 3,
+      "action_quality": 3,
+      "confidence_calibration": 3
+    }
+  },
+  "kpi::1": {
+    "overall": 3.0,
+    "dimensions": {
+      "hypothesis_quality": 3,
+      "domain_relevance": 3,
+      "evidence_specificity": 3,
+      "action_quality": 3,
+      "confidence_calibration": 3
+    }
+  },
+  "kpi::2": {
+    "overall": 3.0,
+    "dimensions": {
+      "hypothesis_quality": 3,
+      "domain_relevance": 3,
+      "evidence_specificity": 3,
+      "action_quality": 3,
+      "confidence_calibration": 3
+    }
+  },
+  "kpi::3": {
+    "overall": 3.0,
+    "dimensions": {
+      "hypothesis_quality": 3,
+      "domain_relevance": 3,
+      "evidence_specificity": 3,
+      "action_quality": 3,
+      "confidence_calibration": 3
+    }
+  },
+  "kpi::4": {
+    "overall": 3.0,
+    "dimensions": {
+      "hypothesis_quality": 3,
+      "domain_relevance": 3,
+      "evidence_specificity": 3,
+      "action_quality": 3,
+      "confidence_calibration": 3
+    }
+  },
+  "pr_review::0": {
+    "overall": 3.0,
+    "dimensions": {
+      "issue_specificity": 3,
+      "risk_accuracy": 3,
+      "test_coverage_awareness": 3,
+      "deployment_risk_specificity": 3,
+      "media_tech_domain_awareness": 3
+    }
+  },
+  "pr_review::1": {
+    "overall": 3.0,
+    "dimensions": {
+      "issue_specificity": 3,
+      "risk_accuracy": 3,
+      "test_coverage_awareness": 3,
+      "deployment_risk_specificity": 3,
+      "media_tech_domain_awareness": 3
+    }
+  },
+  "pr_review::2": {
+    "overall": 3.0,
+    "dimensions": {
+      "issue_specificity": 3,
+      "risk_accuracy": 3,
+      "test_coverage_awareness": 3,
+      "deployment_risk_specificity": 3,
+      "media_tech_domain_awareness": 3
+    }
+  },
+  "pr_review::3": {
+    "overall": 3.0,
+    "dimensions": {
+      "issue_specificity": 3,
+      "risk_accuracy": 3,
+      "test_coverage_awareness": 3,
+      "deployment_risk_specificity": 3,
+      "media_tech_domain_awareness": 3
+    }
+  },
+  "pr_review::4": {
+    "overall": 3.0,
+    "dimensions": {
+      "issue_specificity": 3,
+      "risk_accuracy": 3,
+      "test_coverage_awareness": 3,
+      "deployment_risk_specificity": 3,
+      "media_tech_domain_awareness": 3
+    }
+  }
+}

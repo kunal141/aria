@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build_artifacts/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.local
+*.env
+
+# ARIA runtime data (not source — regenerated)
+memory_store.json
+work_ledger.jsonl
+tool_audit.jsonl
+notifications.jsonl
+
+# Week script test artefacts (temp files created by demo scripts)
+_week*_test_*.json
+_week*_test_*.jsonl
+
+# Claude Code local settings (machine-specific, contains no secrets but is not shared)
+.claude/settings.local.json
+
+# Vector store (Chroma persists here when switched to disk mode)
+chroma_db/
+*.chroma
+
+# Node / frontend
+node_modules/
+dist/
+.parcel-cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# LangSmith / LangChain cache
+.langchain.db
+langchain_cache/
