@@ -1,13 +1,14 @@
 """
-skill_nodes.py — Week 20
+skill_nodes.py — Week 22
 
 Real skill implementations:
-  kpi_node         → Week 6  ✅ DONE
-  pr_review_node   → Week 7  ✅ DONE
-  qa_node          → Week 17 ✅ DONE
-  test_review_node → Week 18 ✅ DONE
-  ci_cd_node       → Week 19 ✅ DONE
-  jira_node        → Week 20 ✅ DONE
+  kpi_node              → Week 6  ✅ DONE
+  pr_review_node        → Week 7  ✅ DONE
+  qa_node               → Week 17 ✅ DONE
+  test_review_node      → Week 18 ✅ DONE
+  ci_cd_node            → Week 19 ✅ DONE
+  jira_node             → Week 20 ✅ DONE
+  analytics_qa_crew_node→ Week 22 ✅ DONE  (CrewAI multi-agent)
 """
 from aria.state import ARIAState
 from aria.skills import skill_registry
@@ -260,6 +261,33 @@ def jira_node(state: ARIAState) -> dict:
             pass
 
     return updates
+
+
+def analytics_qa_crew_node(state: ARIAState) -> dict:
+    """
+    Week 22 — CrewAI Analytics+QA crew node.
+    Routes KPI anomaly investigations through the two-agent crew:
+      AnalyticsAgent → investigates root causes
+      QAAgent        → generates test cases to prevent recurrence
+    Falls back gracefully when no LLM is configured.
+    """
+    from aria.runtime.harness import guard_loop
+    from aria.crews.analytics_qa_crew import AnalyticsQACrew
+
+    guard_loop(state["steps_completed"], state["task_id"])
+
+    crew = AnalyticsQACrew()
+    result = crew.run(
+        anomaly=state["raw_input"],
+        task_id=state["task_id"],
+        dry_run=state.get("execution_mode") == "dry_run",
+    )
+
+    return {
+        "skill_name":      f"analytics_qa_crew:{result.version}",
+        "skill_output":    result.model_dump_json(indent=2),
+        "steps_completed": state["steps_completed"] + ["analytics_qa_crew_node"],
+    }
 
 
 def general_node(state: ARIAState) -> dict:

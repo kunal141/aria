@@ -5,7 +5,8 @@ from aria.nodes.intake import intake
 from aria.nodes.router import router
 from aria.nodes.respond import respond
 from aria.nodes.skill_nodes import (
-    pr_review_node, kpi_node, qa_node, test_review_node, ci_cd_node, jira_node, general_node
+    pr_review_node, kpi_node, qa_node, test_review_node, ci_cd_node,
+    jira_node, analytics_qa_crew_node, general_node,
 )
 
 
@@ -37,9 +38,10 @@ def build_graph():
     graph.add_node("kpi_node",       kpi_node)
     graph.add_node("qa_node",          qa_node)
     graph.add_node("test_review_node", test_review_node)
-    graph.add_node("ci_cd_node",       ci_cd_node)
-    graph.add_node("jira_node",      jira_node)
-    graph.add_node("general_node",   general_node)
+    graph.add_node("ci_cd_node",              ci_cd_node)
+    graph.add_node("jira_node",               jira_node)
+    graph.add_node("analytics_qa_crew_node",  analytics_qa_crew_node)
+    graph.add_node("general_node",            general_node)
     graph.add_node("respond",        respond)
 
     # Fixed edges
@@ -64,7 +66,10 @@ def build_graph():
     )
 
     # All skill nodes converge back to respond
-    for skill_node in ["pr_review_node", "kpi_node", "qa_node", "test_review_node", "ci_cd_node", "jira_node", "general_node"]:
+    for skill_node in [
+        "pr_review_node", "kpi_node", "qa_node", "test_review_node",
+        "ci_cd_node", "jira_node", "analytics_qa_crew_node", "general_node",
+    ]:
         graph.add_edge(skill_node, "respond")
 
     graph.add_edge("respond", END)

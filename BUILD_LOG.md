@@ -43,6 +43,21 @@ Each entry records what was verified clean and what the git ref is.
 
 ---
 
-## Week 20 — Jira / Delivery Management _(in progress)_
+## week-21 — `9b37ad3` (2026-06-06)
+
+### Scope complete
+- Week 20: Jira skill — JiraInput/JiraOutput/JiraTicketDraft, draft-only T3 path,
+  Adaptive Card, 29 tests
+- Week 21: Agent Runtime Harness — `execute()` with 5 safety properties,
+  `BudgetTracker`, `guard_loop()`, T4 Jira create path via harness, 60 new tests
+
+### Verified clean
+- `uv run pytest -q`: **130 passed**
+- Python compilation: passed
+- Git working tree: clean
+
+---
+
+## Week 22 — Agent Factory + CrewAI _(in progress)_
 
 Started: 2026-06-06
