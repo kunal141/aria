@@ -50,3 +50,13 @@ class ARIAState(TypedDict):
     #   confidential → self-hosted model required (Week 25+); redact all external
     #   restricted   → no external calls; human approval required at T1+
     data_sensitivity: Optional[Literal["public", "internal", "confidential", "restricted"]]
+
+    # ── Week 21 additions (Runtime Harness) ───────────────────────────────────
+    # execution_mode: "dry_run" skips real tool calls — used for safe testing
+    #                 and pre-flight checks before live execution.
+    #                 "live" (default) calls tools for real.
+    execution_mode: Optional[Literal["dry_run", "live"]]
+    # token_budget: maximum tokens allowed for this task (enforced by BudgetTracker)
+    token_budget: Optional[int]
+    # token_budget_used: tokens consumed so far — set by respond node for observability
+    token_budget_used: Optional[int]

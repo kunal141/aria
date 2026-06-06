@@ -68,6 +68,23 @@ class JiraOutput(BaseModel):
     version:           str = "v1"
 
 
+# ── Create-intent detection ───────────────────────────────────────────────────
+
+# Explicit phrases that signal the user wants an actual ticket created, not just a draft.
+# T4 (Execute-with-Approval) is activated only for these; everything else stays T3 (Draft).
+_CREATE_KEYWORDS = frozenset([
+    "create ticket", "file a ticket", "file ticket", "create a ticket",
+    "submit ticket", "create now", "create it now", "please create",
+    "go ahead and create", "actually create",
+])
+
+
+def _wants_create(raw_input: str) -> bool:
+    """Return True if the input explicitly requests ticket creation (not just a draft)."""
+    lower = raw_input.lower()
+    return any(kw in lower for kw in _CREATE_KEYWORDS)
+
+
 # ── Skill Prompt ──────────────────────────────────────────────────────────────
 
 _SYSTEM = """You are ARIA, a delivery management specialist for Amar Ujala — India's largest Hindi media platform.
@@ -132,6 +149,8 @@ Rules:
     tags=["skill", "jira", "aria"],
 )
 def run(input: JiraInput) -> JiraOutput:
+    wants_create = _wants_create(input.raw_input)
+
     if not has_llm():
         return JiraOutput(
             ticket_draft=JiraTicketDraft(
@@ -161,8 +180,8 @@ def run(input: JiraInput) -> JiraOutput:
                 suggested_sprint="current",
                 project_key=input.project_key,
             ),
-            action_taken="draft_created",
-            approval_required=False,
+            action_taken="would_require_approval" if wants_create else "draft_created",
+            approval_required=wants_create,
             blocker_detected=True,
             sprint_impact="Blocks the recommendation-service feature pipeline until the CI fix is merged.",
         )
@@ -190,10 +209,13 @@ def run(input: JiraInput) -> JiraOutput:
         data = json.loads(raw)
         draft_data = data.get("ticket_draft", {})
         draft_data.setdefault("project_key", input.project_key)
+        # Keyword check overrides LLM decision — explicit create intent always triggers T4
+        llm_approval = data.get("approval_required", False)
+        approval_required = llm_approval or wants_create
         return JiraOutput(
             ticket_draft=JiraTicketDraft(**draft_data),
-            action_taken=data.get("action_taken", "draft_created"),
-            approval_required=data.get("approval_required", False),
+            action_taken="would_require_approval" if approval_required else "draft_created",
+            approval_required=approval_required,
             blocker_detected=data.get("blocker_detected", False),
             sprint_impact=data.get("sprint_impact", ""),
         )

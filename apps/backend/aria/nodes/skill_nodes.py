@@ -192,7 +192,20 @@ def ci_cd_node(state: ARIAState) -> dict:
     }
 
 
+def _mock_jira_create(draft) -> dict:
+    """Placeholder Jira API call — real REST client in V2 (needs credentials)."""
+    return {
+        "ticket_id": "AU-ENG-MOCK",
+        "url":       "https://jira.amar-ujala.internal/browse/AU-ENG-MOCK",
+        "status":    "created (mock — real Jira API integration arrives in V2)",
+    }
+
+
 def jira_node(state: ARIAState) -> dict:
+    from aria.runtime.harness import execute, guard_loop, make_idem_key, ToolCall
+
+    guard_loop(state["steps_completed"], state["task_id"])
+
     rk = _routing_kwargs(state)
     skill_meta = skill_registry.get("jira")
     result = skill_meta.fn(JiraInput(
@@ -207,12 +220,35 @@ def jira_node(state: ARIAState) -> dict:
         "steps_completed": state["steps_completed"] + ["jira_node"],
     }
 
-    # T4 path: if user explicitly requested ticket creation, register an approval
-    # request now so the gate is populated before Teams card buttons are rendered.
-    # V1: approval_required is always False (draft-only mode).
-    if result.approval_required:
+    if not result.approval_required:
+        return updates
+
+    # T4 path — user explicitly asked to create a ticket
+    from aria.governance.approval_gate import request_approval, is_approved
+
+    if is_approved(state["task_id"], "jira_create"):
+        # Human has already clicked Approve on the Teams card — execute through harness
+        idem_key = make_idem_key(state["task_id"], "jira_create", result.ticket_draft.title)
+        call = ToolCall(
+            task_id=state["task_id"],
+            tool_name="jira_create",
+            action_tier="T4",
+            dry_run=state.get("execution_mode") == "dry_run",
+            idem_key=idem_key,
+            data_sensitivity=rk["data_sensitivity"],
+        )
+        tool_result = execute(call, _mock_jira_create, result.ticket_draft)
+        if tool_result.success and not tool_result.was_dry_run:
+            ticket_id = (tool_result.output or {}).get("ticket_id", "AU-ENG-???")
+            # Annotate skill_output with the created ticket ID
+            import json as _json
+            payload = _json.loads(updates["skill_output"])
+            payload["created_ticket_id"] = ticket_id
+            payload["created_ticket_url"] = (tool_result.output or {}).get("url", "")
+            updates["skill_output"] = _json.dumps(payload, indent=2)
+    else:
+        # Approval pending — register request so the Teams card button can resolve it
         try:
-            from aria.governance.approval_gate import request_approval
             req = request_approval(
                 task_id=state["task_id"],
                 tool_name="jira_create",
