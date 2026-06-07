@@ -178,3 +178,21 @@ Each entry records what was verified clean and what the git ref is.
 
 ### Verified clean
 - `uv run pytest -q`: **367 passed**
+
+---
+
+## Agent Factory Lifecycle + E2E Scenarios + Voice MVP — `(2026-06-07)`
+
+### Scope complete
+- `aria/factory/lifecycle.py`: 5-stage factory lifecycle — validate → security scan → T4 approval → activate → rollback; `LifecycleResult`, `ValidationResult`, `SecurityCheckResult`, `ActivationResult` models
+- `tests/test_factory_lifecycle.py`: 44 deterministic lifecycle tests covering every stage, failure paths, rollback, and the full round-trip
+- `tests/test_e2e_scenarios.py`: 24 deterministic E2E scenario tests across 6 scenarios: KPI investigation, flaky-test analysis, Jira T4 creation path, privacy gate, idem key deduplication, malicious metadata injection blocked
+- `aria/voice/router.py` + `voice_api.py`: FastAPI voice API — POST /voice/run; governance gate enforced (T1/T2 execute; T3/T4 refused with explanation); `aria/voice/__init__.py`
+- `apps/frontend/src/ARIAVoice.jsx`: Browser voice MVP — Web Speech API (no SDK); hold-to-speak mic; SpeechSynthesis response; history with approval cards; governance notice banner
+- `App.jsx`: Voice view wired into view switcher alongside Dashboard and Master Plan
+- `pyproject.toml`: `fastapi>=0.111.0`, `uvicorn>=0.29.0` added to dependencies
+
+### Verified clean
+- `uv run pytest -q`: **435 passed**
+- Frontend production build (`npm run build`): **passed**
+- Git working tree: **clean**
