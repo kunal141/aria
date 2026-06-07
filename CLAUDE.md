@@ -80,10 +80,9 @@ Not a chatbot. Not a copilot. Not a workflow tool.
 | All docs in `aria/docs/` | ✅ DONE |
 | Frontend (ARIAMasterPlan.jsx + ARIADashboard.jsx) | ✅ DONE — light theme, 24 pillars |
 | Vite + React + Tailwind scaffolding | ✅ DONE — runs at localhost:5173 |
-| Weeks 3–12 backend (`apps/backend/`) | ✅ DONE — LangGraph, skills, RAG, code intel, memory |
-| Week 13 — LangSmith Tracing + Teams identity | ⏳ NEXT |
+| Weeks 3–25 backend (`apps/backend/`) | ✅ DONE — LangGraph, skills, RAG, code intel, memory, LangSmith, Teams bot, governance, eval harness, model router, QA/CI-CD/Jira skills, CrewAI crew, DSPy, Decision Intelligence, Agent Control Plane, SLM Classifier |
 
-**CURRENT STATE: Weeks 3–25 complete. 7 skills + analytics crew live. Decision Intelligence / LATS (Week 24), Agent Control Plane + SLM Classifier (Week 25). All Codex P1/P2 findings closed (Jira T4 execution, timeout latency, budget wiring, decision consistency, analytics_qa routing, Decision Intelligence integration, SLM validation, control-plane double-count). 338 deterministic pytest tests passing. Next: Week 26 — RAPTOR + GraphRAG + analytics depth.**
+**CURRENT STATE: Weeks 3–25 complete and all Codex findings closed (two rounds). 350 deterministic pytest tests passing. 7 real skills + analytics crew live. Codex round 2 fixes: Jira honest failure (no fabricated ticket), pre-execution budget guards in skill nodes, CancellationToken for cooperative cancellation + T3/T4 idem_key warning. Next: Week 26 — RAPTOR + GraphRAG + analytics depth.**
 
 ---
 

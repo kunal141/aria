@@ -10,6 +10,8 @@ Real skill implementations:
   jira_node             → Week 20 ✅ DONE
   analytics_qa_crew_node→ Week 22 ✅ DONE  (CrewAI multi-agent)
 """
+from typing import Optional
+
 from aria.state import ARIAState
 from aria.skills import skill_registry
 from aria.skills.kpi_skill import KPIInput, run as kpi_run
@@ -75,6 +77,36 @@ skill_registry.register(
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _guard_budget(state: ARIAState, estimated_tokens: int) -> Optional[dict]:
+    """
+    Pre-execution budget check. Call at the start of each skill node before
+    any LLM call. Returns an error state dict if budget is exhausted, None if
+    the node may proceed. consume() is called here — not in respond — so the
+    budget is reserved before the work begins, not measured after.
+    """
+    task_id = state["task_id"]
+    try:
+        from aria.runtime.budget import budget_tracker
+        if not budget_tracker.consume(task_id, estimated_tokens):
+            remaining = budget_tracker.remaining(task_id)
+            return {
+                "skill_name":      "budget_exceeded",
+                "skill_output":    (
+                    f"[Budget exceeded: need {estimated_tokens} tokens, "
+                    f"{remaining} remaining for task {task_id[:12]}]"
+                ),
+                "steps_completed": state["steps_completed"] + ["budget_check"],
+                "task_status":     "failed",
+                "error":           (
+                    f"Token budget exceeded ({remaining} remaining, "
+                    f"{estimated_tokens} required)"
+                ),
+            }
+    except Exception:
+        pass
+    return None
+
+
 _KNOWN_PIPELINES = [
     "recommendation-service",
     "notification-service",
@@ -106,6 +138,9 @@ def _routing_kwargs(state: ARIAState) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def kpi_node(state: ARIAState) -> dict:
+    budget_err = _guard_budget(state, 3000)
+    if budget_err:
+        return budget_err
     rk = _routing_kwargs(state)
     skill_meta = skill_registry.get("kpi")
     result = skill_meta.fn(KPIInput(
@@ -121,6 +156,9 @@ def kpi_node(state: ARIAState) -> dict:
 
 
 def pr_review_node(state: ARIAState) -> dict:
+    budget_err = _guard_budget(state, 3000)
+    if budget_err:
+        return budget_err
     rk = _routing_kwargs(state)
     skill_meta = skill_registry.get("pr_review")
     result = skill_meta.fn(PRReviewInput(
@@ -136,6 +174,9 @@ def pr_review_node(state: ARIAState) -> dict:
 
 
 def qa_node(state: ARIAState) -> dict:
+    budget_err = _guard_budget(state, 3000)
+    if budget_err:
+        return budget_err
     rk = _routing_kwargs(state)
     skill_meta = skill_registry.get("qa")
     result = skill_meta.fn(QAInput(
@@ -151,6 +192,9 @@ def qa_node(state: ARIAState) -> dict:
 
 
 def test_review_node(state: ARIAState) -> dict:
+    budget_err = _guard_budget(state, 3000)
+    if budget_err:
+        return budget_err
     rk = _routing_kwargs(state)
     skill_meta = skill_registry.get("test_review")
     result = skill_meta.fn(TestReviewInput(
@@ -166,6 +210,9 @@ def test_review_node(state: ARIAState) -> dict:
 
 
 def ci_cd_node(state: ARIAState) -> dict:
+    budget_err = _guard_budget(state, 3000)
+    if budget_err:
+        return budget_err
     rk = _routing_kwargs(state)
     pipeline_name = _infer_pipeline_name(state["raw_input"])
     skill_meta = skill_registry.get("ci_cd")
@@ -203,6 +250,9 @@ def _mock_jira_create(draft) -> dict:
 
 
 def jira_node(state: ARIAState) -> dict:
+    budget_err = _guard_budget(state, 2000)
+    if budget_err:
+        return budget_err
     from aria.runtime.harness import execute, guard_loop, make_idem_key, ToolCall
 
     guard_loop(state["steps_completed"], state["task_id"])
@@ -271,6 +321,9 @@ def analytics_qa_crew_node(state: ARIAState) -> dict:
       QAAgent        → generates test cases to prevent recurrence
     Falls back gracefully when no LLM is configured.
     """
+    budget_err = _guard_budget(state, 4000)
+    if budget_err:
+        return budget_err
     from aria.runtime.harness import guard_loop
     from aria.crews.analytics_qa_crew import AnalyticsQACrew
 
@@ -296,6 +349,9 @@ def general_node(state: ARIAState) -> dict:
     Runs Decision Intelligence (LATS) to rank available skills and recommend
     the most likely useful one — T2 recommendation, never executes autonomously.
     """
+    budget_err = _guard_budget(state, 500)
+    if budget_err:
+        return budget_err
     from aria.decision import next_best_action, DecisionOption
 
     options = [

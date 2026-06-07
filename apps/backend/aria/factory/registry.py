@@ -25,24 +25,29 @@ class AgentRegistry:
     def register(self, spec: AgentSpec) -> AgentSpec:
         """
         Register an agent spec.
-        If an agent with the same name already exists, deprecate it first
-        and store the new spec — versioning via status, not name collision.
+        If an agent with the same name already exists, archive the previous
+        version under a versioned key (name@version) regardless of its current
+        status — draft and sandbox replacements must leave a history record.
+        Active agents are also deprecated before archiving.
         """
         existing = self._agents.get(spec.name)
-        if existing and existing.status == "active":
-            self._agents[spec.name] = existing.deprecate()
-            # Store the deprecated version under a versioned key
+        if existing:
             versioned_key = f"{spec.name}@{existing.version}"
-            self._agents[versioned_key] = self._agents[spec.name]
+            archived = existing.deprecate() if existing.status == "active" else existing
+            self._agents[versioned_key] = archived
         self._agents[spec.name] = spec
         return spec
 
     def update_status(self, name: str, status: AgentStatus) -> Optional[AgentSpec]:
-        """Update status of a registered agent. Returns updated spec or None."""
+        """
+        Update status of a registered agent. Returns updated spec or None.
+        Uses model_validate (not model_copy) so Pydantic enforces the
+        AgentStatus Literal — invalid values raise ValidationError.
+        """
         spec = self._agents.get(name)
         if spec is None:
             return None
-        updated = spec.model_copy(update={"status": status})
+        updated = AgentSpec.model_validate({**spec.model_dump(), "status": status})
         self._agents[name] = updated
         return updated
 

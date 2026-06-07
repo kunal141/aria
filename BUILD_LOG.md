@@ -125,3 +125,56 @@ Each entry records what was verified clean and what the git ref is.
 
 ### Verified clean
 - `uv run pytest -q`: **338 passed**
+
+---
+
+## Codex review round 2 fixes — `(2026-06-07)`
+
+### P1 fixes (critical correctness)
+| Finding | Fix |
+|---|---|
+| Jira reports creation when governed execution fails | `teams_bot.py`: `_execute_jira_after_approval()` returns `Optional[dict]` (None on failure, not fabricated ticket); `_handle_card_action` tracks `jira_attempted` flag separately, sends honest failure message when None |
+| Budget consumption is after-the-fact and boolean result ignored | `skill_nodes.py`: `_guard_budget()` helper calls `consume()` pre-execution at start of every skill node; `respond.py` reads `budget_tracker.used()` instead of retroactive consume |
+| Timed-out tools continue executing side-effects | `harness.py`: `CancellationToken` class with threading.Event; set in `_thread_local` inside worker; `token.cancel()` fires on timeout before `shutdown(wait=False)`; T3/T4 tools without `idem_key` get audit warning |
+
+### P3 fix
+- `CLAUDE.md` status table updated — stale "Week 13 ⏳ NEXT" row replaced with accurate Week 3–25 summary
+
+### Verified clean
+- `uv run pytest -q`: **350 passed**
+- Python compilation: passed
+- Git working tree: clean
+
+---
+
+## Agent Factory Codex fixes — `(2026-06-07)`
+
+### P1 fix (unsafe code generation)
+| Finding | Fix |
+|---|---|
+| Names like `123-agent` and `bad agent` produce SyntaxError in scaffolded code | `agent_spec.py`: `@field_validator("name")` rejects any name where `name.replace("-","_")` is not a valid Python identifier |
+| Triple-quote in role/goal/backstory breaks generated docstring | `scaffold.py`: `_safe_embed()` helper replaces `"""` with `\"\"\"` before embedding any string field into the scaffold |
+
+### P2 fixes (registry correctness)
+| Finding | Fix |
+|---|---|
+| `update_status("agent", "broken")` silently stores invalid status | `registry.py`: `update_status()` now uses `AgentSpec.model_validate(...)` instead of `model_copy(update=...)` — Pydantic enforces the AgentStatus Literal |
+| Replacing a draft or sandbox agent loses its history record | `registry.py`: `register()` now archives any existing version (not only active) under `name@version` key; only active agents are also deprecated |
+
+### Verified clean
+- `uv run pytest -q`: **363 passed**
+
+---
+
+## Agent Factory scaffold hardening (round 2) — `(2026-06-07)`
+
+### P1 fix (remaining unsafe interpolation)
+| Finding | Fix |
+|---|---|
+| `version='v1"oops'` produces unterminated string literal in return dict | `scaffold.py`: string literal values in `return` dict now use `repr()` at generation time — quotes, backslashes, and all special chars are always safe |
+| Capability `skill_name` with `\n` breaks comment indentation | `scaffold.py`: `_safe_comment()` helper strips newlines; applied to `primary_skill` and `_to_class(primary_skill)` in all comment lines |
+| `owner='domain\user'` in docstring: `\u` processed as Unicode escape | `_safe_embed()` now doubles backslashes (step 1, must run before `"""` escaping) — `\user` → `\\user` in generated source |
+| Newline in skill_name breaks `textwrap.dedent` (zero-indent line collapses common prefix) | `_safe_embed()` now also collapses `\n` and `\r` to spaces (step 3) |
+
+### Verified clean
+- `uv run pytest -q`: **367 passed**

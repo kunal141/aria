@@ -39,17 +39,15 @@ def respond(state: ARIAState) -> dict:
         routing_reason=state.get("routing_reason", ""),
     )
 
-    # Record token consumption — estimate from output size (4 chars ≈ 1 token).
-    # consume() is non-blocking; budget overrun is observable but not fatal in V1.
-    token_budget_used = state.get("token_budget_used") or 0
-    if skill_output:
-        estimated = max(1, len(skill_output) // 4)
-        try:
-            from aria.runtime.budget import budget_tracker
-            budget_tracker.consume(state["task_id"], estimated)
-            token_budget_used += estimated
-        except Exception:
-            pass
+    # Read token usage from tracker — consumption happens pre-execution in skill nodes,
+    # not here. respond.py only observes the final used amount for state recording.
+    token_budget_used = 0
+    try:
+        from aria.runtime.budget import budget_tracker
+        initial = state.get("token_budget") or 50000
+        token_budget_used = budget_tracker.used(state["task_id"], initial_budget=initial)
+    except Exception:
+        pass
 
     return {
         "response":          response,

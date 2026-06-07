@@ -20,7 +20,7 @@ Why typed specs (not a plain dict):
 """
 from datetime import datetime, timezone
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 AgentStatus = Literal["draft", "sandbox", "active", "deprecated"]
@@ -45,6 +45,26 @@ class AgentSpec(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     parent_agent: Optional[str] = None   # name of the agent that spawned this one
+
+    @field_validator("name")
+    @classmethod
+    def name_produces_valid_identifier(cls, v: str) -> str:
+        """
+        Reject names that cannot be used as a Python function name after
+        replacing hyphens with underscores.  scaffold_agent() depends on this
+        guarantee — a bad name produces a SyntaxError in the generated code.
+
+        Accepted:  analytics-aria  →  analytics_aria  (valid identifier)
+        Rejected:  123-agent       →  123_agent        (starts with digit)
+        Rejected:  bad agent       →  bad agent        (space is not a valid identifier char)
+        """
+        sanitized = v.replace("-", "_")
+        if not sanitized.isidentifier():
+            raise ValueError(
+                f"Agent name {v!r} produces invalid Python identifier {sanitized!r}. "
+                "Use only letters, digits, and hyphens; name must not start with a digit."
+            )
+        return v
 
     @property
     def skill_names(self) -> list[str]:

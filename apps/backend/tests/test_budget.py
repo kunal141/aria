@@ -144,13 +144,18 @@ def test_intake_initialises_budget_tracker():
 
 
 def test_respond_records_token_budget_used():
-    """respond() must set token_budget_used in returned state."""
+    """
+    respond() must record token_budget_used from the tracker.
+    Consumption happens pre-execution in skill nodes; respond() reads what was used.
+    """
     from aria.nodes.respond import respond
     from aria.runtime.budget import budget_tracker
 
     budget_tracker.clear_all()
     task_id = "t-respond-budget"
     budget_tracker.init_task(task_id, 50_000)
+    # Simulate a skill node having consumed 3000 tokens before respond() runs
+    budget_tracker.consume(task_id, 3_000)
     state = {
         "task_id":         task_id,
         "task_type":       "kpi",
@@ -158,9 +163,80 @@ def test_respond_records_token_budget_used():
         "routing_reason":  "kpi keyword",
         "audience":        "developer",
         "steps_completed": ["intake", "router", "kpi_node"],
+        "token_budget":    50_000,
         "token_budget_used": 0,
     }
     result = respond(state)
     assert "token_budget_used" in result
-    assert result["token_budget_used"] > 0
+    # 3000 tokens were consumed by the simulated skill node
+    assert result["token_budget_used"] == 3_000
     budget_tracker.clear(task_id)
+
+
+# ── P1.2 (second round): pre-execution budget guard in skill nodes ────────────
+
+def _make_state(task_id: str, steps=None) -> dict:
+    return {
+        "task_id":          task_id,
+        "raw_input":        "CTR dropped 18%",
+        "task_type":        "kpi",
+        "task_status":      "executing",
+        "routing_reason":   "kpi keyword",
+        "steps_completed":  steps or ["intake", "router"],
+        "data_sensitivity": "internal",
+        "audience":         "developer",
+    }
+
+
+def test_guard_budget_returns_none_when_budget_ok():
+    """_guard_budget must return None when tokens are available."""
+    from aria.nodes.skill_nodes import _guard_budget
+    from aria.runtime.budget import budget_tracker
+
+    budget_tracker.clear_all()
+    task_id = "t-guard-ok"
+    budget_tracker.init_task(task_id, 50_000)
+    result = _guard_budget(_make_state(task_id), 3_000)
+    assert result is None
+    budget_tracker.clear(task_id)
+
+
+def test_guard_budget_returns_error_dict_when_exhausted():
+    """_guard_budget must return an error state dict when budget is exhausted."""
+    from aria.nodes.skill_nodes import _guard_budget
+    from aria.runtime.budget import budget_tracker
+
+    budget_tracker.clear_all()
+    task_id = "t-guard-fail"
+    budget_tracker.init_task(task_id, 100)   # tiny budget
+    result = _guard_budget(_make_state(task_id), 3_000)
+    assert result is not None
+    assert result["task_status"] == "failed"
+    assert "budget" in result["skill_name"]
+    budget_tracker.clear(task_id)
+
+
+def test_guard_budget_error_includes_remaining():
+    """Error message must include remaining token count."""
+    from aria.nodes.skill_nodes import _guard_budget
+    from aria.runtime.budget import budget_tracker
+
+    budget_tracker.clear_all()
+    task_id = "t-guard-msg"
+    budget_tracker.init_task(task_id, 50)
+    result = _guard_budget(_make_state(task_id), 3_000)
+    assert result is not None
+    assert "50" in result["skill_output"]   # remaining is 50
+    budget_tracker.clear(task_id)
+
+
+def test_guard_budget_passes_when_no_tracker_entry():
+    """_guard_budget must not raise if task was never initialised; fall through."""
+    from aria.nodes.skill_nodes import _guard_budget
+    from aria.runtime.budget import budget_tracker
+
+    budget_tracker.clear_all()
+    # No init_task call — remaining() returns default (50000)
+    result = _guard_budget(_make_state("t-guard-uninit"), 3_000)
+    # Default budget is large — should pass through
+    assert result is None

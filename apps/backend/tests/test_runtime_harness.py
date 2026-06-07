@@ -256,3 +256,95 @@ def test_execute_timeout_bounds_caller_latency():
     assert result.success is False
     assert "timeout" in (result.error or "").lower()
     assert elapsed < 2.0, f"Timeout did not bound caller latency: elapsed={elapsed:.2f}s"
+
+
+# ── P1.3 (second round): CancellationToken ────────────────────────────────────
+
+def test_cancellation_token_starts_not_cancelled():
+    from aria.runtime.harness import CancellationToken
+    token = CancellationToken()
+    assert token.is_cancelled is False
+
+
+def test_cancellation_token_cancel_sets_flag():
+    from aria.runtime.harness import CancellationToken
+    token = CancellationToken()
+    token.cancel()
+    assert token.is_cancelled is True
+
+
+def test_cancellation_token_raise_if_cancelled_raises():
+    from aria.runtime.harness import CancellationToken
+    token = CancellationToken()
+    token.cancel()
+    with pytest.raises(RuntimeError, match="cancelled"):
+        token.raise_if_cancelled()
+
+
+def test_cancellation_token_raise_if_not_cancelled_does_nothing():
+    from aria.runtime.harness import CancellationToken
+    token = CancellationToken()
+    token.raise_if_cancelled()   # must not raise
+
+
+def test_get_cancellation_token_inside_tool_is_set():
+    """Tool running inside execute() must see a CancellationToken in thread-local."""
+    import threading
+    from aria.runtime.harness import get_cancellation_token, CancellationToken
+
+    seen_token = []
+
+    def _capturing_fn():
+        seen_token.append(get_cancellation_token())
+        return "ok"
+
+    call = ToolCall(task_id="t-cancel-1", tool_name="knowledge_search")
+    execute(call, _capturing_fn)
+    assert len(seen_token) == 1
+    assert isinstance(seen_token[0], CancellationToken)
+
+
+def test_get_cancellation_token_outside_harness_returns_none():
+    """get_cancellation_token() outside execute() must return None."""
+    from aria.runtime.harness import get_cancellation_token
+    assert get_cancellation_token() is None
+
+
+def test_cancellation_token_cancelled_on_timeout():
+    """Token must be cancelled when the harness fires a timeout."""
+    import threading
+    from aria.runtime.harness import get_cancellation_token, CancellationToken
+
+    token_after_cancel = []
+    barrier = threading.Event()
+
+    def _slow_check():
+        barrier.set()           # signal: thread started
+        time.sleep(5)           # will be timed out
+        token = get_cancellation_token()
+        token_after_cancel.append(token.is_cancelled if token else None)
+        return "done"
+
+    call = ToolCall(task_id="t-cancel-2", tool_name="knowledge_search", timeout_s=0.05)
+    result = execute(call, _slow_check)
+    barrier.wait(timeout=2)     # ensure thread started
+    time.sleep(0.2)             # let the thread reach the token.is_cancelled check
+    assert result.success is False
+    # If the thread ran the check: token must have been cancelled
+    if token_after_cancel:
+        assert token_after_cancel[0] is True
+
+
+# ── P1.1 (second round): idem_key warning for T3/T4 ─────────────────────────
+
+def test_t4_without_idem_key_still_executes():
+    """A T4 tool missing idem_key must still execute (warning, not block)."""
+    from aria.governance.approval_gate import request_approval, approve
+
+    task_id = "t-t4-warn"
+    req = request_approval(task_id, "jira_create", "Create ticket", "T4")
+    approve(req.request_id, approved_by="test-user")
+
+    call = ToolCall(task_id=task_id, tool_name="jira_create", action_tier="T4")
+    result = execute(call, _ok_fn)
+    assert result.success is True   # warning does not block

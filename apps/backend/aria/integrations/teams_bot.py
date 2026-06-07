@@ -339,14 +339,12 @@ def _build_jira_card(data: dict, task_id: str) -> dict:
     }
 
 
-def _execute_jira_after_approval(task_id: str) -> dict:
+def _execute_jira_after_approval(task_id: str) -> Optional[dict]:
     """
     Execute Jira ticket creation immediately after T4 approval from a Teams card.
 
-    The LangGraph run completed before the user clicked Approve, so the graph
-    cannot be resumed.  This function is the authoritative execution path for
-    post-approval Jira creation in V1 — it mirrors the harness path inside
-    jira_node but is called directly from the card action handler.
+    Returns the created ticket dict on success, None on any failure.
+    Callers MUST surface a failure to the user — never substitute a fabricated ticket.
 
     Real REST client integration arrives in V2 (needs credentials).
     """
@@ -373,11 +371,7 @@ def _execute_jira_after_approval(task_id: str) -> dict:
             return result.output
     except Exception:
         pass
-    return {
-        "ticket_id": "AU-ENG-MOCK",
-        "url":       "https://jira.amar-ujala.internal/browse/AU-ENG-MOCK",
-        "status":    "created (mock)",
-    }
+    return None
 
 
 def _build_card(task_type: str, skill_output: Optional[str], task_id: str) -> Optional[dict]:
@@ -463,6 +457,7 @@ class ARIAActivityHandler(ActivityHandler):
                 return
             from_name = (turn_context.activity.from_property or {}).get("name", "teams-user")
             resolved = 0
+            jira_attempted: bool = False
             jira_created: Optional[dict] = None
             for req in pending:
                 if action == "approve":
@@ -472,21 +467,31 @@ class ARIAActivityHandler(ActivityHandler):
                         # T4 jira_create — execute the ticket creation now, since the
                         # LangGraph run has already completed and cannot be resumed.
                         if req.tool_name == "jira_create":
+                            jira_attempted = True
                             jira_created = _execute_jira_after_approval(task_id)
                 else:
                     updated = approval_gate.reject(req.request_id, reason="Rejected via Teams card")
                     if updated:
                         resolved += 1
 
-            if jira_created:
-                ticket_id  = jira_created.get("ticket_id", "AU-ENG-???")
-                ticket_url = jira_created.get("url", "")
-                await turn_context.send_activity(
-                    MessageFactory.text(
-                        f"✅ Jira ticket created by {from_name}.\n"
-                        f"Ticket: **{ticket_id}**\n{ticket_url}"
+            if jira_attempted:
+                if jira_created:
+                    ticket_id  = jira_created.get("ticket_id", "AU-ENG-???")
+                    ticket_url = jira_created.get("url", "")
+                    await turn_context.send_activity(
+                        MessageFactory.text(
+                            f"✅ Jira ticket created by {from_name}.\n"
+                            f"Ticket: **{ticket_id}**\n{ticket_url}"
+                        )
                     )
-                )
+                else:
+                    await turn_context.send_activity(
+                        MessageFactory.text(
+                            f"⚠️ Jira ticket creation failed for task `{task_id[:12]}`.\n"
+                            "The approval was recorded but the ticket was not created. "
+                            "Please create the ticket manually or retry."
+                        )
+                    )
             else:
                 verb = "approved" if action == "approve" else "rejected"
                 await turn_context.send_activity(

@@ -5,7 +5,7 @@ No LLM, no network, no filesystem.
 import pytest
 from aria.factory.agent_spec import AgentSpec, AgentCapability, AgentStatus
 from aria.factory.registry import AgentRegistry
-from aria.factory.scaffold import scaffold_agent, _to_class
+from aria.factory.scaffold import scaffold_agent, _to_class, _safe_comment
 
 
 # ── AgentSpec ─────────────────────────────────────────────────────────────────
@@ -241,3 +241,178 @@ def test_builtin_aria_core_registered():
     assert spec.status == "active"
     assert "kpi" in spec.skill_names
     assert "pr_review" in spec.skill_names
+
+
+# ── P1: AgentSpec name validation ────────────────────────────────────────────
+
+def test_spec_name_starting_with_digit_is_rejected():
+    """'123-agent' → '123_agent' is not a valid Python identifier."""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match="invalid Python identifier"):
+        AgentSpec(name="123-agent", role="R", goal="G", backstory="B")
+
+
+def test_spec_name_with_space_is_rejected():
+    """'bad agent' contains a space — produces an invalid Python identifier."""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match="invalid Python identifier"):
+        AgentSpec(name="bad agent", role="R", goal="G", backstory="B")
+
+
+def test_spec_name_kebab_case_is_accepted():
+    """Standard kebab-case names must be accepted."""
+    spec = AgentSpec(name="analytics-aria", role="R", goal="G", backstory="B")
+    assert spec.name == "analytics-aria"
+
+
+def test_spec_name_all_letters_is_accepted():
+    spec = AgentSpec(name="aria", role="R", goal="G", backstory="B")
+    assert spec.name == "aria"
+
+
+# ── P1: scaffold escaping ────────────────────────────────────────────────────
+
+def test_scaffold_role_with_triple_quotes_is_valid_python():
+    """Triple-quotes in role must be escaped; generated code must compile."""
+    spec = AgentSpec(
+        name="test-agent",
+        role='Analytics """Expert""" Specialist',
+        goal="Investigate KPI anomalies.",
+        backstory='Deep analyst with """industry""" knowledge.',
+        capabilities=[AgentCapability(skill_name="kpi")],
+    )
+    source = scaffold_agent(spec)
+    compile(source, "<scaffold>", "exec")   # must not raise SyntaxError
+
+
+def test_scaffold_goal_with_triple_quotes_is_valid_python():
+    spec = AgentSpec(
+        name="test-agent",
+        role="R",
+        goal='Optimise """click-through""" rates on the feed.',
+        backstory="B",
+        capabilities=[],
+    )
+    source = scaffold_agent(spec)
+    compile(source, "<scaffold>", "exec")
+
+
+def test_scaffold_triple_quotes_appear_escaped_in_source():
+    """_safe_embed must replace triple-double-quotes in the output."""
+    from aria.factory.scaffold import _safe_embed
+    assert '"""' not in _safe_embed('has """triple""" quotes')
+    assert _safe_embed("no special chars") == "no special chars"
+
+
+def test_scaffold_version_with_double_quote_is_valid_python():
+    """version='v1\"oops' must not produce an unterminated string literal."""
+    spec = AgentSpec(
+        name="test-agent",
+        role="R",
+        goal="G",
+        backstory="B",
+        capabilities=[AgentCapability(skill_name="kpi")],
+        version='v1"oops',
+    )
+    source = scaffold_agent(spec)
+    compile(source, "<scaffold>", "exec")
+
+
+def test_scaffold_capability_with_newline_is_valid_python():
+    """A newline inside a capability skill_name must not break comment indentation."""
+    spec = AgentSpec(
+        name="test-agent",
+        role="R",
+        goal="G",
+        backstory="B",
+        capabilities=[AgentCapability(skill_name="kpi\nmalicious")],
+    )
+    source = scaffold_agent(spec)
+    compile(source, "<scaffold>", "exec")
+
+
+def test_scaffold_owner_with_backslash_is_valid_python():
+    """Backslashes in owner must not produce an invalid escape sequence."""
+    spec = AgentSpec(
+        name="test-agent",
+        role="R",
+        goal="G",
+        backstory="B",
+        capabilities=[],
+        owner=r"domain\user",
+    )
+    source = scaffold_agent(spec)
+    compile(source, "<scaffold>", "exec")
+
+
+def test_safe_comment_strips_newlines():
+    assert "\n" not in _safe_comment("foo\nbar")
+    assert "\r" not in _safe_comment("foo\r\nbar")
+    assert _safe_comment("clean") == "clean"
+
+
+# ── P2.1: update_status validation ───────────────────────────────────────────
+
+def test_update_status_invalid_value_raises(registry):
+    """model_validate must reject status values outside the AgentStatus Literal."""
+    from pydantic import ValidationError
+    registry.register(_make_spec(name="status-agent", status="draft"))
+    with pytest.raises(ValidationError):
+        registry.update_status("status-agent", "broken")   # type: ignore[arg-type]
+
+
+def test_update_status_valid_values_accepted(registry):
+    registry.register(_make_spec(name="status-agent2", status="draft"))
+    for valid_status in ("sandbox", "active", "deprecated", "draft"):
+        result = registry.update_status("status-agent2", valid_status)
+        assert result is not None
+        assert result.status == valid_status
+
+
+# ── P2.2: history preserved for draft and sandbox ────────────────────────────
+
+def test_registry_re_register_archives_draft(registry):
+    """Replacing a draft agent must leave a history record."""
+    spec_v1 = _make_spec(name="history-agent", status="draft",   version="v1")
+    spec_v2 = _make_spec(name="history-agent", status="sandbox", version="v2")
+    registry.register(spec_v1)
+    registry.register(spec_v2)
+    archived = registry.get("history-agent@v1")
+    assert archived is not None, "draft v1 must be archived under history-agent@v1"
+    assert archived.version == "v1"
+    assert archived.status == "draft"   # draft stays draft, not force-deprecated
+
+
+def test_registry_re_register_archives_sandbox(registry):
+    """Replacing a sandbox agent must leave a history record."""
+    spec_v1 = _make_spec(name="sb-agent", status="sandbox", version="v1")
+    spec_v2 = _make_spec(name="sb-agent", status="active",  version="v2")
+    registry.register(spec_v1)
+    registry.register(spec_v2)
+    archived = registry.get("sb-agent@v1")
+    assert archived is not None, "sandbox v1 must be archived under sb-agent@v1"
+    assert archived.status == "sandbox"   # sandbox stays sandbox
+
+
+def test_registry_re_register_still_deprecates_active(registry):
+    """Replacing an active agent must deprecate and archive it (existing behaviour)."""
+    spec_v1 = _make_spec(name="act-agent", status="active",  version="v1")
+    spec_v2 = _make_spec(name="act-agent", status="sandbox", version="v2")
+    registry.register(spec_v1)
+    registry.register(spec_v2)
+    archived = registry.get("act-agent@v1")
+    assert archived is not None
+    assert archived.status == "deprecated"
+
+
+def test_registry_three_generation_history_preserved(registry):
+    """v1 → v2 → v3: both v1 and v2 must be in history."""
+    v1 = _make_spec(name="gen-agent", status="active",  version="v1")
+    v2 = _make_spec(name="gen-agent", status="active",  version="v2")
+    v3 = _make_spec(name="gen-agent", status="sandbox", version="v3")
+    registry.register(v1)
+    registry.register(v2)
+    registry.register(v3)
+    assert registry.get("gen-agent@v1") is not None
+    assert registry.get("gen-agent@v2") is not None
+    assert registry.get("gen-agent").version == "v3"

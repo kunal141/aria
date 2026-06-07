@@ -31,10 +31,52 @@ Usage:
 """
 import concurrent.futures
 import hashlib
+import threading
 import time
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
+
+
+# ── Cooperative cancellation ──────────────────────────────────────────────────
+
+_thread_local = threading.local()
+
+
+class CancellationToken:
+    """
+    Cooperative cancellation signal for tool functions running inside the harness.
+
+    Long-running tools that perform I/O loops or multi-step work should call
+    raise_if_cancelled() at safe checkpoints to detect when their caller timed out
+    and stop early rather than continuing to run side-effects in the background.
+
+    Usage in a tool:
+        from aria.runtime.harness import get_cancellation_token
+        token = get_cancellation_token()
+        if token:
+            token.raise_if_cancelled()
+    """
+
+    def __init__(self):
+        self._event = threading.Event()
+
+    def cancel(self):
+        """Signal that the operation should stop."""
+        self._event.set()
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def raise_if_cancelled(self):
+        if self._event.is_set():
+            raise RuntimeError("Tool execution cancelled: caller timed out")
+
+
+def get_cancellation_token() -> Optional[CancellationToken]:
+    """Return the CancellationToken for the current tool thread, if any."""
+    return getattr(_thread_local, "cancellation_token", None)
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -132,6 +174,10 @@ def execute(call: ToolCall, fn: Callable, /, *args: Any, **kwargs: Any) -> ToolR
         )
 
     # ── 3. Idempotency ────────────────────────────────────────────────────────
+    if call.action_tier in ("T3", "T4") and not call.idem_key:
+        _audit(call, allowed=True, outcome="warning",
+               reason=f"{call.action_tier} tool called without idem_key — side-effects may repeat on retry")
+
     if call.idem_key:
         cached = _IDEM_CACHE.get(call.idem_key)
         if cached is not None and cached.success:
@@ -194,18 +240,30 @@ def _run_with_timeout(fn: Callable, args: tuple, kwargs: dict, timeout_s: float)
     """
     Run fn(*args, **kwargs) with a wall-clock timeout.  Cross-platform (no SIGALRM).
 
+    A CancellationToken is stored in thread-local storage so cooperative tools
+    can call get_cancellation_token().raise_if_cancelled() to stop early on timeout.
+    token.cancel() fires as soon as the timeout fires — before executor.shutdown() —
+    so the tool sees the signal even while still running in the background thread.
+
     shutdown(wait=False) is critical: the context-manager default blocks until the
     worker thread completes even after TimeoutError, negating the timeout bound.
     With wait=False the caller returns as soon as the timeout fires; the thread
     continues in the background and is cleaned up by the GC.
     """
+    token = CancellationToken()
+
+    def _wrapped():
+        _thread_local.cancellation_token = token
+        return fn(*args, **kwargs)
+
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(fn, *args, **kwargs)
+    future = executor.submit(_wrapped)
     try:
         result = future.result(timeout=timeout_s)
         executor.shutdown(wait=False)
         return result
     except concurrent.futures.TimeoutError:
+        token.cancel()
         executor.shutdown(wait=False)
         raise TimeoutError(
             f"Tool execution exceeded {timeout_s}s timeout"
