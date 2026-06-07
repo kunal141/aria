@@ -223,3 +223,30 @@ Each entry records what was verified clean and what the git ref is.
 ### Verified clean
 - `uv run pytest -q`: **479 passed**
 - Git working tree: clean
+
+---
+
+## Evidence Gate + CI/CD Integration + Cross-Channel Citations — `(2026-06-07)`
+
+### Problem addressed
+`kpi_node` set `platform_evidence` but `respond.py` published skill output unconditionally.
+`teams_bot._build_card()` and `voice/router.py` also read `skill_output` directly,
+bypassing any gate. `ci_cd_node` had no evidence assembly at all.
+
+### Changes
+- `aria/nodes/respond.py`: `_EVIDENCE_REQUIRED_TYPES = {"kpi","ci_cd"}`. `_build_response()` checks `platform_evidence` before rendering: absent → `[EVIDENCE UNAVAILABLE … WITHHELD]`; `is_safe_to_surface=False` → `[RESPONSE WITHHELD — UNSUPPORTED CLAIMS]`; safe → `render_artifact_with_citations()`. Non-evidence types (pr_review, jira, qa) pass through unchanged.
+- `aria/artifact_engine.py`: `render_artifact_with_citations()` + `_render_citation_footer()` — appends claim-level provenance block (source_id + authority + staleness flag) after any evidence-backed artifact. Footer never includes source.content or source.title.
+- `aria/nodes/skill_nodes.py`: `_assemble_cicd_evidence()` added; `ci_cd_node` now populates `platform_evidence` with pipeline-state + dependency-impact claims (BFS impact analysis baked in). Matches kpi_node's evidence pattern.
+- `aria/integrations/teams_bot.py`: `_build_card()` now accepts `platform_evidence_json`; returns None (fallback to gated text) for kpi/ci_cd when evidence absent or unsafe. `_build_kpi_card()` gains evidence provenance FactSet. New `_build_cicd_card()` with dependency-impact block. `_build_evidence_facts()` helper shows only source_id/authority — never source content. `_handle_text_message()` extracts and threads `platform_evidence` from graph result.
+- `aria/voice/router.py`: `_make_state()` includes `platform_evidence: None`. `_evidence_gate_spoken()` + `_parse_platform_evidence()` added. `voice_run()` checks gate before calling `_extract_spoken()` for kpi/ci_cd.
+- `tests/test_evidence_gate.py`: 50 deterministic tests across all 4 surfaces — respond, artifact engine, voice, Teams — proving absent/unsafe/safe evidence behaviour and that `_VOICE_EVIDENCE_REQUIRED == _EVIDENCE_REQUIRED_TYPES == _EVIDENCE_REQUIRED_CARD_TYPES` (no surface divergence).
+
+### Invariants now enforced across all surfaces
+- KPI and CI/CD responses are withheld at respond, Teams card, and voice when evidence absent
+- Citation footer shows source identifiers only — no source content in any rendered output
+- `ci_cd_node` BFS impact analysis: analytics-pipeline failure → recommendation + feed-ranking + notification in dependency-impact claim
+- `_VOICE_EVIDENCE_REQUIRED`, `_EVIDENCE_REQUIRED_TYPES`, `_EVIDENCE_REQUIRED_CARD_TYPES` must match — enforced by tests
+
+### Verified clean
+- `uv run pytest -q`: **529 passed**
+- Git working tree: clean

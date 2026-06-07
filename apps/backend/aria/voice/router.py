@@ -122,7 +122,56 @@ def _make_state(
         "execution_mode":      "dry_run",   # voice always dry-run for harness calls
         "token_budget":        None,
         "token_budget_used":   None,
+        "platform_evidence":   None,        # populated by kpi_node / ci_cd_node
     }
+
+
+# ── Evidence gate (mirrors respond.py gate for voice surface) ─────────────────
+
+# Task types that require platform_evidence before voice can speak the result.
+_VOICE_EVIDENCE_REQUIRED: frozenset[str] = frozenset({"kpi", "ci_cd"})
+
+
+def _parse_platform_evidence(pe_json: Optional[str]) -> Optional[dict]:
+    if not pe_json:
+        return None
+    try:
+        import json as _json
+        return _json.loads(pe_json)
+    except Exception:
+        return None
+
+
+def _evidence_gate_spoken(
+    result: dict,
+    task_type: str,
+) -> Optional[str]:
+    """
+    Returns a withheld message string if the evidence gate blocks publication,
+    or None if the result may proceed to _extract_spoken().
+
+    Same contract as respond.py: absent → withheld, is_safe_to_surface=False → withheld.
+    """
+    if task_type not in _VOICE_EVIDENCE_REQUIRED:
+        return None  # gate not required for this type
+
+    evidenced = _parse_platform_evidence(result.get("platform_evidence"))
+
+    if evidenced is None:
+        return (
+            "I couldn't verify this answer with platform data. "
+            "Platform evidence was unavailable. "
+            "Please check the ARIA dashboard for details."
+        )
+
+    if not evidenced.get("is_safe_to_surface", False):
+        blocked = evidenced.get("blocked_reason") or "Unsupported claims detected."
+        return (
+            f"I found an issue with this answer. {blocked} "
+            "Please check the ARIA dashboard for the full evidence trail."
+        )
+
+    return None  # safe to surface
 
 
 # ── Friendly spoken output from skill_output JSON ────────────────────────────
@@ -215,6 +264,16 @@ def voice_run(req: VoiceRunRequest) -> VoiceRunResponse:
 
     try:
         result = node_fn(state)
+
+        # Evidence gate — kpi and ci_cd must have safe platform_evidence
+        withheld = _evidence_gate_spoken(result, task_type)
+        if withheld:
+            return VoiceRunResponse(
+                task_id=task_id,
+                task_type=task_type,
+                skill_output=withheld,
+            )
+
         spoken = _extract_spoken(result.get("skill_output") or "", task_type)
         return VoiceRunResponse(
             task_id=task_id,

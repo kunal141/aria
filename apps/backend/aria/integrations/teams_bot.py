@@ -170,7 +170,7 @@ def _build_pr_review_card(data: dict, task_id: str) -> dict:
     }
 
 
-def _build_kpi_card(data: dict, task_id: str) -> dict:
+def _build_kpi_card(data: dict, task_id: str, evidenced: dict | None = None) -> dict:
     """Adaptive Card schema for KPI investigation output."""
     summary  = data.get("summary", "")
     conf     = data.get("confidence_score", 0.0)
@@ -187,51 +187,77 @@ def _build_kpi_card(data: dict, task_id: str) -> dict:
 
     action_texts = "\n".join(f"• {a}" for a in actions[:3])
 
+    body = [
+        {
+            "type": "TextBlock",
+            "text": "📊 ARIA KPI Investigation",
+            "weight": "Bolder",
+            "size": "Medium",
+        },
+        {
+            "type": "FactSet",
+            "facts": [
+                {"title": "Confidence", "value": f"{conf:.0%}"},
+                {"title": "Task ID",    "value": task_id[:12]},
+            ],
+        },
+        {
+            "type": "TextBlock",
+            "text": summary,
+            "wrap": True,
+        },
+        *([{
+            "type": "TextBlock",
+            "text": "**Root Cause Hypotheses**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {
+            "type": "FactSet",
+            "facts": cause_facts,
+        }] if cause_facts else []),
+        *([{
+            "type": "TextBlock",
+            "text": "**Recommended Actions**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": action_texts,
+            "wrap": True,
+        }] if actions else []),
+    ]
+
+    # Evidence provenance section — shows claim-level citations (no source content)
+    if evidenced:
+        evidence_facts = _build_evidence_facts(evidenced)
+        if evidence_facts:
+            body += [
+                {
+                    "type": "TextBlock",
+                    "text": "**Evidence Sources**",
+                    "weight": "Bolder",
+                    "spacing": "Medium",
+                    "color": "Accent",
+                },
+                {"type": "FactSet", "facts": evidence_facts},
+            ]
+        warnings = evidenced.get("freshness_warnings", [])
+        if warnings:
+            body.append({
+                "type": "TextBlock",
+                "text": f"⚠️ {warnings[0][:80]}",
+                "color": "Warning",
+                "wrap": True,
+                "spacing": "Small",
+            })
+
     return {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "version": "1.5",
-        "body": [
-            {
-                "type": "TextBlock",
-                "text": "📊 ARIA KPI Investigation",
-                "weight": "Bolder",
-                "size": "Medium",
-            },
-            {
-                "type": "FactSet",
-                "facts": [
-                    {"title": "Confidence", "value": f"{conf:.0%}"},
-                    {"title": "Task ID",    "value": task_id[:12]},
-                ],
-            },
-            {
-                "type": "TextBlock",
-                "text": summary,
-                "wrap": True,
-            },
-            *([{
-                "type": "TextBlock",
-                "text": "**Root Cause Hypotheses**",
-                "weight": "Bolder",
-                "spacing": "Medium",
-            },
-            {
-                "type": "FactSet",
-                "facts": cause_facts,
-            }] if cause_facts else []),
-            *([{
-                "type": "TextBlock",
-                "text": "**Recommended Actions**",
-                "weight": "Bolder",
-                "spacing": "Medium",
-            },
-            {
-                "type": "TextBlock",
-                "text": action_texts,
-                "wrap": True,
-            }] if actions else []),
-        ],
+        "body": body,
         "actions": [
             {
                 "type": "Action.Submit",
@@ -247,6 +273,151 @@ def _build_kpi_card(data: dict, task_id: str) -> dict:
             },
         ],
     }
+
+
+def _build_cicd_card(data: dict, task_id: str, evidenced: dict | None = None) -> dict:
+    """Adaptive Card schema for CI/CD failure output with dependency impact."""
+    failure_summary = data.get("failure_summary", "")
+    severity        = data.get("severity", "unknown").upper()
+    failed_stage    = data.get("failed_stage", "")
+    hypotheses      = data.get("root_cause_hypotheses", [])
+    fixes           = data.get("suggested_fixes", [])
+    verdict         = data.get("deployment_verdict", "unknown")
+
+    severity_colors = {
+        "CRITICAL": "Attention",
+        "HIGH":     "Warning",
+        "MEDIUM":   "Default",
+        "LOW":      "Good",
+    }
+    color = severity_colors.get(severity, "Default")
+
+    hyp_facts = [
+        {
+            "title": f"[{h.get('likelihood','?').upper()}]",
+            "value": h.get("hypothesis", ""),
+        }
+        for h in hypotheses[:3]
+    ]
+
+    body = [
+        {
+            "type": "TextBlock",
+            "text": "🔧 ARIA CI/CD Intelligence",
+            "weight": "Bolder",
+            "size": "Medium",
+        },
+        {
+            "type": "FactSet",
+            "facts": [
+                {"title": "Severity",       "value": severity},
+                {"title": "Failed Stage",   "value": failed_stage or "unknown"},
+                {"title": "Verdict",        "value": verdict},
+                {"title": "Task ID",        "value": task_id[:12]},
+            ],
+        },
+        {
+            "type": "TextBlock",
+            "text": failure_summary,
+            "wrap": True,
+            "color": color,
+        },
+        *([{
+            "type": "TextBlock",
+            "text": "**Root Cause Hypotheses**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {"type": "FactSet", "facts": hyp_facts}] if hyp_facts else []),
+        *([{
+            "type": "TextBlock",
+            "text": "**Suggested Fixes**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": "\n".join(f"• {f}" for f in fixes[:3]),
+            "wrap": True,
+        }] if fixes else []),
+    ]
+
+    # Evidence provenance + dependency impact
+    if evidenced:
+        evidence_facts = _build_evidence_facts(evidenced)
+        if evidence_facts:
+            body += [
+                {
+                    "type": "TextBlock",
+                    "text": "**Platform Evidence & Dependency Impact**",
+                    "weight": "Bolder",
+                    "spacing": "Medium",
+                    "color": "Accent",
+                },
+                {"type": "FactSet", "facts": evidence_facts},
+            ]
+        warnings = evidenced.get("freshness_warnings", [])
+        if warnings:
+            body.append({
+                "type": "TextBlock",
+                "text": f"⚠️ {warnings[0][:80]}",
+                "color": "Warning",
+                "wrap": True,
+                "spacing": "Small",
+            })
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": body,
+        "actions": [
+            {
+                "type": "Action.Submit",
+                "title": "✅ Acknowledged",
+                "style": "positive",
+                "data": {"aria_action": "approve", "task_id": task_id},
+            },
+            {
+                "type": "Action.Submit",
+                "title": "❌ Wrong analysis",
+                "style": "destructive",
+                "data": {"aria_action": "reject", "task_id": task_id},
+            },
+        ],
+    }
+
+
+def _build_evidence_facts(evidenced: dict) -> list[dict]:
+    """
+    Build Adaptive Card FactSet facts from claim-level evidence.
+    Shows only source_id and authority — never source.content or source.title.
+    """
+    facts = []
+    for ce in evidenced.get("claim_evidence_map", []):
+        claim_id    = ce.get("claim_id", "?")
+        is_supported = ce.get("is_supported", False)
+        selected    = ce.get("selected_evidence")
+
+        if not is_supported:
+            facts.append({"title": claim_id, "value": "No authorized evidence found"})
+            continue
+
+        if selected:
+            source_id = selected.get("source_id", "?")
+            authority = selected.get("authority", "?")
+            is_stale  = selected.get("is_stale", False)
+            stale_h   = selected.get("staleness_hours")
+            stale_flag = (
+                f" [stale {stale_h:.0f}h]" if is_stale and stale_h is not None
+                else " [stale]" if is_stale else ""
+            )
+            facts.append({
+                "title": claim_id,
+                "value": f"{source_id} (auth={authority}{stale_flag})",
+            })
+
+    return facts
 
 
 def _build_jira_card(data: dict, task_id: str) -> dict:
@@ -374,10 +545,31 @@ def _execute_jira_after_approval(task_id: str) -> Optional[dict]:
     return None
 
 
-def _build_card(task_type: str, skill_output: Optional[str], task_id: str) -> Optional[dict]:
+# Task types that require safe platform_evidence before a card is published.
+_EVIDENCE_REQUIRED_CARD_TYPES: frozenset[str] = frozenset({"kpi", "ci_cd"})
+
+
+def _parse_platform_evidence(pe_json: Optional[str]) -> Optional[dict]:
+    if not pe_json:
+        return None
+    try:
+        return json.loads(pe_json)
+    except Exception:
+        return None
+
+
+def _build_card(
+    task_type: str,
+    skill_output: Optional[str],
+    task_id: str,
+    platform_evidence_json: Optional[str] = None,
+) -> Optional[dict]:
     """
     Parse skill output and build the right Adaptive Card schema.
-    Returns None if output is a placeholder or unparseable.
+    Returns None if output is a placeholder, unparseable, or evidence-gated.
+
+    For kpi and ci_cd: returns None (falling back to gated text) when
+    platform_evidence is absent or is_safe_to_surface=False.
     """
     if not skill_output or skill_output.startswith("["):
         return None
@@ -386,10 +578,19 @@ def _build_card(task_type: str, skill_output: Optional[str], task_id: str) -> Op
     except json.JSONDecodeError:
         return None
 
+    evidenced = _parse_platform_evidence(platform_evidence_json)
+
+    # Evidence gate — kpi and ci_cd cards require safe evidence
+    if task_type in _EVIDENCE_REQUIRED_CARD_TYPES:
+        if evidenced is None or not evidenced.get("is_safe_to_surface", False):
+            return None  # let _handle_text_message fall back to response_text (gated)
+
     if task_type == "pr_review":
         return _build_pr_review_card(data, task_id)
     if task_type == "kpi":
-        return _build_kpi_card(data, task_id)
+        return _build_kpi_card(data, task_id, evidenced=evidenced)
+    if task_type == "ci_cd":
+        return _build_cicd_card(data, task_id, evidenced=evidenced)
     if task_type == "jira":
         return _build_jira_card(data, task_id)
     return None
@@ -546,13 +747,17 @@ class ARIAActivityHandler(ActivityHandler):
                 }),
             )
 
-            task_type    = result.get("task_type", "general")
-            skill_output = result.get("skill_output")
-            task_id      = result.get("task_id", "unknown")
-            response_text = result.get("response", "Task complete.")
+            task_type             = result.get("task_type", "general")
+            skill_output          = result.get("skill_output")
+            task_id               = result.get("task_id", "unknown")
+            response_text         = result.get("response", "Task complete.")
+            platform_evidence_json = result.get("platform_evidence")
 
-            # Try to build an Adaptive Card; fall back to plain text
-            card_schema = _build_card(task_type, skill_output, task_id)
+            # Try to build an Adaptive Card; fall back to plain text.
+            # For kpi/ci_cd: card is suppressed when evidence is absent/unsafe —
+            # response_text (the gated withheld message from respond.py) is used instead.
+            card_schema = _build_card(task_type, skill_output, task_id,
+                                      platform_evidence_json=platform_evidence_json)
             if card_schema:
                 # Register a generic T2 approval request for feedback cards.
                 # SKIP for jira — jira_node already registered a T4 "jira_create" request;

@@ -292,8 +292,86 @@ def _render_leadership_brief(data: dict, task_type: str, task_id: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Evidence citation footer
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_citation_footer(evidenced: dict) -> str:
+    """
+    Claim-level citation block appended after any evidence-backed artifact.
+
+    Shows: claim_id, selected source_id, authority score, staleness flag.
+    NEVER includes source.content, source.title, or any derived text — only
+    source identifiers and numeric/boolean metadata.
+    """
+    lines = [
+        "",
+        "┌── Evidence Provenance " + "─" * 30 + "┐",
+    ]
+
+    for ce in evidenced.get("claim_evidence_map", []):
+        claim_id    = ce.get("claim_id", "?")
+        is_supported = ce.get("is_supported", False)
+        selected    = ce.get("selected_evidence")
+
+        if not is_supported:
+            lines.append(f"│  [{claim_id}] UNSUPPORTED — no authorized evidence found")
+            continue
+
+        if selected:
+            source_id  = selected.get("source_id", "?")
+            authority  = selected.get("authority", "?")
+            is_stale   = selected.get("is_stale", False)
+            stale_h    = selected.get("staleness_hours")
+            stale_flag = (
+                f" [stale {stale_h:.0f}h]" if is_stale and stale_h is not None
+                else " [stale]" if is_stale else ""
+            )
+            lines.append(f"│  [{claim_id}] {source_id} (authority={authority}{stale_flag})")
+
+    # Conflict summary
+    all_conflicts = []
+    for ce in evidenced.get("claim_evidence_map", []):
+        all_conflicts.extend(ce.get("conflicts", []))
+    if all_conflicts:
+        lines.append("│")
+        lines.append(f"│  Conflicts detected: {len(all_conflicts)}")
+        for c in all_conflicts[:3]:
+            a = c.get("source_a_id", "?")
+            b = c.get("source_b_id", "?")
+            res = c.get("resolved_by", "?")
+            lines.append(f"│    {a} vs {b} → {res}")
+
+    # Freshness warnings
+    warnings = evidenced.get("freshness_warnings", [])
+    if warnings:
+        lines.append("│")
+        for w in warnings[:3]:
+            lines.append(f"│  ⚠ {w[:60]}")
+
+    lines.append("└" + "─" * 53 + "┘")
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
+def render_artifact_with_citations(
+    task_type: str,
+    skill_output: Optional[str],
+    task_id: str,
+    audience: Optional[str] = None,
+    evidenced: Optional[dict] = None,
+) -> str:
+    """
+    Render a full artifact and append a claim-level citation footer.
+    Used by respond.py for evidence-required task types (kpi, ci_cd).
+    """
+    artifact = render_artifact(task_type, skill_output, task_id, audience)
+    if evidenced:
+        artifact += "\n" + _render_citation_footer(evidenced)
+    return artifact
+
 
 def render_artifact(
     task_type: str,

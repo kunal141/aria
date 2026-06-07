@@ -300,11 +300,86 @@ def ci_cd_node(state: ARIAState) -> dict:
         notify_team=result.notify_team,
     )
 
-    return {
+    # Platform Intelligence — pipeline state + dependency impact evidence
+    platform_evidence_json: Optional[str] = None
+    try:
+        platform_evidence_json = _assemble_cicd_evidence(state)
+    except Exception:
+        pass
+
+    updates = {
         "skill_name":      f"ci_cd:{result.version}",
         "skill_output":    result.model_dump_json(indent=2),
         "steps_completed": state["steps_completed"] + ["ci_cd_node"],
     }
+    if platform_evidence_json:
+        updates["platform_evidence"] = platform_evidence_json
+    return updates
+
+
+def _assemble_cicd_evidence(state: ARIAState) -> Optional[str]:
+    """
+    Build an EvidencedAnswer covering pipeline state and transitive dependency impact.
+
+    claim "pipeline-state": current CI/telemetry for the failing service.
+    claim "dependency-impact": downstream services that may be affected, from
+        documentation and telemetry of all transitively dependent services.
+    """
+    from aria.platform.catalog import ServiceCatalog, InMemoryCatalogStore
+    from aria.platform.sources import SourceRepository
+    from aria.platform.fixtures import load_fixtures_into
+    from aria.platform.evidence import EvidenceAssembler
+    from aria.platform.models import ClaimSpec, SensitivityLevel
+
+    raw_sens = (state.get("data_sensitivity") or "internal").lower()
+    _sens_map = {"public": "public", "internal": "internal",
+                 "confidential": "restricted", "restricted": "restricted"}
+    caller_level: SensitivityLevel = _sens_map.get(raw_sens, "internal")  # type: ignore[assignment]
+
+    catalog = ServiceCatalog(InMemoryCatalogStore())
+    source_repo = SourceRepository()
+    load_fixtures_into(catalog, source_repo, include_restricted=False)
+
+    pipeline = _infer_pipeline_name(state["raw_input"])
+    service_ids = [pipeline] if pipeline else _KNOWN_PIPELINES
+
+    # BFS impact analysis: which downstream services are affected
+    affected: list[str] = []
+    if pipeline:
+        try:
+            affected = catalog.impact_analysis(pipeline)
+        except Exception:
+            pass
+
+    all_relevant = list({*service_ids, *affected})
+
+    claims = [
+        ClaimSpec(
+            claim_id="pipeline-state",
+            claim_text=f"Current CI build and health status for {', '.join(service_ids)}",
+            service_ids=service_ids,
+            source_types=["ci", "telemetry"],
+            keywords=["failing", "failed", "error", "test", "build", "deploy", "health"],
+        ),
+        ClaimSpec(
+            claim_id="dependency-impact",
+            claim_text=(
+                f"Services downstream of {', '.join(service_ids)} "
+                f"that may be affected: {', '.join(affected) or 'none identified'}"
+            ),
+            service_ids=all_relevant,
+            source_types=["documentation", "telemetry"],
+            keywords=["depends", "dependency", "downstream", "impact", "latency"],
+        ),
+    ]
+
+    assembler = EvidenceAssembler(catalog, source_repo)
+    evidenced = assembler.assemble(
+        query=state["raw_input"],
+        claims=claims,
+        caller_level=caller_level,
+    )
+    return evidenced.model_dump_json(indent=2)
 
 
 def _mock_jira_create(draft) -> dict:
