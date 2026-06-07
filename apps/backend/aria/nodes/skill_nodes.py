@@ -148,11 +148,78 @@ def kpi_node(state: ARIAState) -> dict:
         task_id=state["task_id"],
         **rk,
     ))
-    return {
+
+    # Platform Intelligence — evidence assembly after skill execution
+    platform_evidence_json: Optional[str] = None
+    try:
+        platform_evidence_json = _assemble_kpi_evidence(state)
+    except Exception:
+        pass  # Evidence layer failure must never break the skill path
+
+    updates = {
         "skill_name":      f"kpi:{result.version}",
         "skill_output":    result.model_dump_json(indent=2),
         "steps_completed": state["steps_completed"] + ["kpi_node"],
     }
+    if platform_evidence_json:
+        updates["platform_evidence"] = platform_evidence_json
+    return updates
+
+
+def _assemble_kpi_evidence(state: ARIAState) -> Optional[str]:
+    """
+    Build an EvidencedAnswer for the KPI query using Platform Intelligence.
+
+    Infers which services are relevant from raw_input.
+    Caller's clearance comes from the state's data_sensitivity field.
+    Returns the JSON-serialised EvidencedAnswer, or None if assembly cannot proceed.
+    """
+    from aria.platform.catalog import ServiceCatalog, InMemoryCatalogStore
+    from aria.platform.sources import SourceRepository
+    from aria.platform.fixtures import load_fixtures_into
+    from aria.platform.evidence import EvidenceAssembler
+    from aria.platform.models import ClaimSpec, SensitivityLevel
+
+    # Map ARIAState data_sensitivity to platform SensitivityLevel
+    raw_sens = (state.get("data_sensitivity") or "internal").lower()
+    # "confidential" maps to "restricted" — platform layer has no "confidential" level
+    _sens_map = {"public": "public", "internal": "internal",
+                 "confidential": "restricted", "restricted": "restricted"}
+    caller_level: SensitivityLevel = _sens_map.get(raw_sens, "internal")  # type: ignore[assignment]
+
+    # Build fresh in-memory catalog + source repo populated with fixtures
+    catalog = ServiceCatalog(InMemoryCatalogStore())
+    source_repo = SourceRepository()
+    load_fixtures_into(catalog, source_repo, include_restricted=False)
+
+    # Infer relevant service from the query (fall back to all 5 services)
+    pipeline = _infer_pipeline_name(state["raw_input"])
+    service_ids = [pipeline] if pipeline else _KNOWN_PIPELINES
+
+    claims = [
+        ClaimSpec(
+            claim_id="service-health",
+            claim_text=f"Current health and telemetry for {', '.join(service_ids)}",
+            service_ids=service_ids,
+            source_types=["telemetry", "ci"],
+            keywords=["error", "latency", "ctr", "throughput", "failed", "health"],
+        ),
+        ClaimSpec(
+            claim_id="recent-issues",
+            claim_text=f"Recent blockers or CI failures for {', '.join(service_ids)}",
+            service_ids=service_ids,
+            source_types=["jira", "ci", "repository"],
+            keywords=["blocker", "failing", "regression", "timeout", "issue"],
+        ),
+    ]
+
+    assembler = EvidenceAssembler(catalog, source_repo)
+    evidenced = assembler.assemble(
+        query=state["raw_input"],
+        claims=claims,
+        caller_level=caller_level,
+    )
+    return evidenced.model_dump_json(indent=2)
 
 
 def pr_review_node(state: ARIAState) -> dict:

@@ -196,3 +196,30 @@ Each entry records what was verified clean and what the git ref is.
 - `uv run pytest -q`: **435 passed**
 - Frontend production build (`npm run build`): **passed**
 - Git working tree: **clean**
+
+---
+
+## Platform Intelligence V1 — `(2026-06-07)`
+
+### Scope complete
+- `aria/platform/models.py`: Full domain type library — `ServiceEntry`, `KnowledgeSource`, `Evidence`, `ConflictRecord`, `AuthorizationDecision`, `ClaimSpec`, `ClaimEvidence`, `EvidencedAnswer`; `caller_can_access()`, `SOURCE_AUTHORITY`, `STALENESS_HOURS`
+- `aria/platform/catalog.py`: `ServiceCatalog` + `CatalogStore` Protocol + `InMemoryCatalogStore`; BFS impact analysis over reverse-dependency graph
+- `aria/platform/sources.py`: `SourceRepository` + `SourceStore` Protocol + `InMemorySourceStore`; Phase-1 authorization at retrieval — restricted sources never returned to under-cleared callers
+- `aria/platform/evaluator.py`: `check_staleness()`, `check_authorization()` (Phase-2), `detect_conflicts()`, `_resolve_conflict()` (authority → recency → unresolved), `build_evidence()`
+- `aria/platform/evidence.py`: `EvidenceAssembler.assemble()` — two-phase auth, per-claim mapping, fail-closed on missing evidence, no LLM decides claim support
+- `aria/platform/fixtures.py`: `build_service_fixtures()` + `build_source_fixtures()` + `load_fixtures_into()` — factory functions (not singletons); 5 canonical services + recognizable restricted-content test fixtures (`SECRET_API_KEY=abc123`)
+- `aria/platform/__init__.py`: Public API exports
+- `aria/state.py`: Added `platform_evidence: Optional[str]` field
+- `aria/nodes/skill_nodes.py`: `kpi_node` now calls `_assemble_kpi_evidence()` post-skill; `platform_evidence` JSON added to return dict
+- `tests/test_platform_intelligence.py`: 44 deterministic tests — sensitivity ordering, staleness thresholds, conflict detection/resolution, Phase-1/Phase-2 auth, **critical leak tests proving `SECRET_API_KEY` never appears in EvidencedAnswer JSON**, dependency impact BFS, fail-closed missing evidence, unresolved-conflict exclusion, kpi_node integration, fixture isolation
+
+### Key invariants enforced and tested
+- Restricted content (`SECRET_API_KEY=abc123`) verified absent from all EvidencedAnswer fields: answer, excerpts, authorization decision reasons, blocked_reason, freshness_warnings
+- `AuthorizationDecision.reason` contains only source_id + sensitivity strings when `allowed=False` — no title, no content
+- `EvidencedAnswer.answer == ""` whenever any claim is unsupported
+- Unresolved conflicts (same authority + timestamp) exclude BOTH sources
+- LLM output verified against deterministic evidence assembly — LLM never decides claim support
+
+### Verified clean
+- `uv run pytest -q`: **479 passed**
+- Git working tree: clean

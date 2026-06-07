@@ -60,3 +60,9 @@ class ARIAState(TypedDict):
     token_budget: Optional[int]
     # token_budget_used: tokens consumed so far — set by respond node for observability
     token_budget_used: Optional[int]
+
+    # ── Week 26 additions (Platform Intelligence) ─────────────────────────────
+    # platform_evidence: JSON-serialized EvidencedAnswer from the Platform
+    # Intelligence layer. Present when kpi_node (and future skills) call
+    # EvidenceAssembler. Empty/None when the task type doesn't use the platform layer.
+    platform_evidence: Optional[str]
