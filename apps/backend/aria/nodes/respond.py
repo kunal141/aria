@@ -131,6 +131,8 @@ def respond(state: ARIAState) -> dict:
         task_id=state["task_id"],
         task_type=task_type,
         routing_reason=state.get("routing_reason", ""),
+        error=state.get("error"),
+        platform_evidence=state.get("platform_evidence"),
     )
 
     token_budget_used = 0

@@ -143,13 +143,22 @@ class RaptorBuilder:
         return tree
 
     def _split_leaves(self, document: str) -> list[str]:
-        """Split document into word-count-bounded chunks at paragraph boundaries."""
+        """Split document into word-count-bounded chunks at paragraph boundaries.
+
+        Paragraphs that individually exceed chunk_size are further split at word
+        boundaries so no leaf chunk exceeds the configured limit.
+        """
         paragraphs = [p.strip() for p in document.split("\n\n") if p.strip()]
+        # Sub-split any paragraph that exceeds chunk_size
+        sub_paras: list[str] = []
+        for para in paragraphs:
+            sub_paras.extend(self._split_words(para))
+
         chunks: list[str] = []
         current: list[str] = []
         current_wc = 0
 
-        for para in paragraphs:
+        for para in sub_paras:
             para_wc = _word_count(para)
             if current and current_wc + para_wc > self._chunk_size:
                 chunks.append("\n\n".join(current))
@@ -163,6 +172,16 @@ class RaptorBuilder:
             chunks.append("\n\n".join(current))
 
         return chunks or [document]
+
+    def _split_words(self, text: str) -> list[str]:
+        """Split a single text into word-count-bounded segments."""
+        words = text.split()
+        if len(words) <= self._chunk_size:
+            return [text]
+        segments: list[str] = []
+        for i in range(0, len(words), self._chunk_size):
+            segments.append(" ".join(words[i : i + self._chunk_size]))
+        return segments
 
 
 # ── Retrieval helper ───────────────────────────────────────────────────────────

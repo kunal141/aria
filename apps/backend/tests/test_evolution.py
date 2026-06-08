@@ -463,8 +463,129 @@ class TestRaptor:
         ids = list(tree.chunks.keys())
         assert len(ids) == len(set(ids))
 
+    # ── P2: Leaf size enforcement ──────────────────────────────────────────────
+
+    def test_oversized_paragraph_is_split(self):
+        """A single paragraph with more words than chunk_size must be split."""
+        big_para = " ".join(f"word{i}" for i in range(300))
+        builder = RaptorBuilder(chunk_size=50, group_size=4)
+        tree = builder.build("big", big_para)
+        for leaf in tree.leaves():
+            wc = len(leaf.text.split())
+            assert wc <= 50, f"Leaf has {wc} words, exceeds chunk_size=50"
+
+    def test_mixed_size_paragraphs_all_within_limit(self):
+        """Mix of normal and oversized paragraphs — all leaves must be within limit."""
+        paras = [
+            "Short paragraph with only a few words.",
+            " ".join(f"long{i}" for i in range(200)),
+            "Another short one.",
+            " ".join(f"huge{i}" for i in range(400)),
+        ]
+        doc = "\n\n".join(paras)
+        builder = RaptorBuilder(chunk_size=60, group_size=3)
+        tree = builder.build("mixed", doc)
+        for leaf in tree.leaves():
+            wc = len(leaf.text.split())
+            assert wc <= 60, f"Leaf has {wc} words, exceeds chunk_size=60"
+
+    def test_exact_size_paragraph_is_not_split(self):
+        """A paragraph at exactly chunk_size words should produce one leaf."""
+        exact = " ".join(f"w{i}" for i in range(50))
+        builder = RaptorBuilder(chunk_size=50, group_size=4)
+        tree = builder.build("exact", exact)
+        leaves = tree.leaves()
+        assert len(leaves) == 1
+        assert len(leaves[0].text.split()) == 50
+
+
+# ── Work Ledger / Monitor integration tests ───────────────────────────────────
+
+class TestWorkLedgerMonitorIntegration:
+    """Prove that the production ledger drives the monitor's signal detection."""
+
+    def test_log_task_writes_error_field(self, tmp_path):
+        """log_task with error kwarg must write 'error' field to JSONL."""
+        import json as _json
+        from unittest.mock import patch
+        ledger = tmp_path / "ledger.jsonl"
+        import aria.work_ledger as wl
+        with patch.object(wl, "LEDGER_FILE", ledger):
+            wl.log_task("tid1", "kpi", "voice:kpi", error="timeout after 30s")
+        entries = [_json.loads(l) for l in ledger.read_text().splitlines()]
+        assert entries[0]["error"] == "timeout after 30s"
+
+    def test_log_task_writes_platform_evidence_field(self, tmp_path):
+        """log_task with platform_evidence kwarg must write the field."""
+        import json as _json
+        from unittest.mock import patch
+        import aria.work_ledger as wl
+        ledger = tmp_path / "ledger.jsonl"
+        ev = _json.dumps({"is_safe_to_surface": False, "blocked_reason": "stale"})
+        with patch.object(wl, "LEDGER_FILE", ledger):
+            wl.log_task("tid2", "kpi", "voice:kpi", platform_evidence=ev)
+        entries = [_json.loads(l) for l in ledger.read_text().splitlines()]
+        assert entries[0]["platform_evidence"] is not None
+
+    def test_monitor_reads_error_from_real_ledger_format(self, tmp_path):
+        """EvolutionMonitor must detect high_error_rate from production-format entries."""
+        import json as _json
+        from unittest.mock import patch
+        import aria.work_ledger as wl
+        ledger = tmp_path / "ledger.jsonl"
+        with patch.object(wl, "LEDGER_FILE", ledger):
+            for _ in range(4):
+                wl.log_task("t1", "kpi", "r", error="LLM call failed")
+            wl.log_task("t2", "kpi", "r")  # one success
+
+        monitor = EvolutionMonitor(ledger_path=str(ledger))
+        summary = monitor.scan()
+        signal_types = [s.signal_type for s in summary.signals]
+        assert "high_error_rate" in signal_types
+
+    def test_monitor_reads_platform_evidence_from_real_ledger_format(self, tmp_path):
+        """EvolutionMonitor must detect low_support_rate from production-format entries."""
+        import json as _json
+        from unittest.mock import patch
+        import aria.work_ledger as wl
+        ledger = tmp_path / "ledger.jsonl"
+        unsupported = _json.dumps({"is_safe_to_surface": False})
+        with patch.object(wl, "LEDGER_FILE", ledger):
+            for _ in range(4):
+                wl.log_task("t1", "kpi", "r", platform_evidence=unsupported)
+            wl.log_task("t2", "kpi", "r")
+
+        monitor = EvolutionMonitor(ledger_path=str(ledger))
+        summary = monitor.scan()
+        signal_types = [s.signal_type for s in summary.signals]
+        assert "low_support_rate" in signal_types
+
+    def test_log_task_null_fields_are_null_not_absent(self, tmp_path):
+        """Fields not passed must still appear in JSONL as null (not missing keys)."""
+        import json as _json
+        from unittest.mock import patch
+        import aria.work_ledger as wl
+        ledger = tmp_path / "ledger.jsonl"
+        with patch.object(wl, "LEDGER_FILE", ledger):
+            wl.log_task("t1", "kpi", "r")
+        entry = _json.loads(ledger.read_text().splitlines()[0])
+        assert "error" in entry
+        assert entry["error"] is None
+        assert "platform_evidence" in entry
+        assert entry["platform_evidence"] is None
+
 
 # ── Integration engine tests ───────────────────────────────────────────────────
+
+def _live_ctx(tmp_path, *, approval_request_id: str = "T4-approved-001") -> IntegrationContext:
+    """Helper: non-dry-run context with valid T4 approval token."""
+    return IntegrationContext(
+        artifact_dir=str(tmp_path / "artifacts"),
+        archive_dir=str(tmp_path / "archive"),
+        dry_run=False,
+        approval_request_id=approval_request_id,
+    )
+
 
 class TestIntegrationEngine:
     def test_dry_run_succeeds_on_approved_proposal(self):
@@ -502,6 +623,109 @@ class TestIntegrationEngine:
         assert result.success is False
         assert "not found" in result.notes.lower()
 
+    # ── P1: T4 gate enforcement ────────────────────────────────────────────────
+
+    def test_non_dry_run_without_approval_request_id_blocked(self, tmp_path):
+        """Non-dry-run integration without approval_request_id must be blocked."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        store.save(p)
+        engine = IntegrationEngine(store=store)
+        ctx = IntegrationContext(
+            artifact_dir=str(tmp_path / "artifacts"),
+            dry_run=False,
+            approval_request_id=None,   # missing T4 token
+        )
+        result = engine.integrate(p.proposal_id, ctx)
+        assert result.success is False
+        assert "approval_request_id" in result.notes
+        # Status must NOT be updated to integrated
+        assert store.get(p.proposal_id).status == ProposalStatus.approved
+
+    def test_non_dry_run_empty_approval_request_id_blocked(self, tmp_path):
+        """Empty string approval_request_id must also be blocked."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        store.save(p)
+        engine = IntegrationEngine(store=store)
+        ctx = IntegrationContext(
+            artifact_dir=str(tmp_path / "artifacts"),
+            dry_run=False,
+            approval_request_id="",   # empty string — rejected
+        )
+        result = engine.integrate(p.proposal_id, ctx)
+        assert result.success is False
+        assert store.get(p.proposal_id).status == ProposalStatus.approved
+
+    def test_dry_run_does_not_require_approval_request_id(self):
+        """dry_run=True must work without approval_request_id (test safety)."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        store.save(p)
+        engine = IntegrationEngine(store=store)
+        result = engine.integrate(p.proposal_id, IntegrationContext(dry_run=True))
+        assert result.success is True
+
+    # ── P1: Path traversal prevention ─────────────────────────────────────────
+
+    def test_path_traversal_in_proposal_id_blocked(self, tmp_path):
+        """proposal_id containing ../ must not escape artifact_dir."""
+        from aria.evolution.integration import _safe_id
+        safe = _safe_id("../../../etc/passwd")
+        assert ".." not in safe
+        assert "/" not in safe
+        assert "\\" not in safe
+
+    def test_safe_id_preserves_valid_chars(self):
+        from aria.evolution.integration import _safe_id
+        assert _safe_id("prop-001_abc") == "prop-001_abc"
+
+    def test_safe_id_raises_on_all_special(self):
+        from aria.evolution.integration import _safe_id
+        import pytest
+        with pytest.raises(ValueError):
+            _safe_id("///...")
+
+    def test_path_traversal_proposal_does_not_write_outside_dir(self, tmp_path):
+        """End-to-end: a malicious proposal_id must not escape the artifact dir."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        # Manually override proposal_id to a traversal string via model internals
+        malicious_p = p.model_copy(update={"proposal_id": "../../evil"})
+        store._store["../../evil"] = malicious_p
+        engine = IntegrationEngine(store=store)
+        ctx = _live_ctx(tmp_path)
+        result = engine.integrate("../../evil", ctx)
+        if result.success:
+            # If integration succeeded, file must be inside artifact_dir
+            assert result.artifact_path is not None
+            artifact = Path(result.artifact_path).resolve()
+            artifact_dir = (tmp_path / "artifacts").resolve()
+            assert str(artifact).startswith(str(artifact_dir))
+
+    # ── P1: Failed write not reported as success ───────────────────────────────
+
+    def test_failed_artifact_write_reported_as_failure(self, tmp_path):
+        """When artifact write fails, success must be False and status not updated."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        store.save(p)
+        engine = IntegrationEngine(store=store)
+        # Point artifact_dir at an existing file so mkdir fails
+        blocker = tmp_path / "blocker"
+        blocker.write_text("I am a file, not a directory")
+        ctx = IntegrationContext(
+            artifact_dir=str(blocker),   # cannot mkdir into a file
+            dry_run=False,
+            approval_request_id="T4-approved-001",
+        )
+        result = engine.integrate(p.proposal_id, ctx)
+        assert result.success is False
+        # Status must NOT have advanced to integrated
+        assert store.get(p.proposal_id).status == ProposalStatus.approved
+
+    # ── Standard rollback tests ────────────────────────────────────────────────
+
     def test_rollback_sets_rolled_back_status(self):
         store = InMemoryProposalStore()
         p = _approved_proposal()
@@ -525,16 +749,53 @@ class TestIntegrationEngine:
         engine = IntegrationEngine(store=store)
         assert engine.rollback("ghost") is False
 
+    # ── P2: Rollback restores artifacts ───────────────────────────────────────
+
+    def test_rollback_with_ctx_returns_true_and_updates_status(self, tmp_path):
+        """rollback() with a live ctx must return True and set rolled_back status."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        store.save(p)
+        engine = IntegrationEngine(store=store)
+        ctx = _live_ctx(tmp_path)
+        int_result = engine.integrate(p.proposal_id, ctx)
+        assert int_result.success is True
+
+        ok = engine.rollback(p.proposal_id, ctx)
+        assert ok is True
+        assert store.get(p.proposal_id).status == ProposalStatus.rolled_back
+
+    def test_rollback_restores_archive(self, tmp_path):
+        """After rollback with ctx, the prior JSON must be restored to artifact_dir."""
+        store = InMemoryProposalStore()
+        p = _approved_proposal()
+        store.save(p)
+        engine = IntegrationEngine(store=store)
+        ctx = _live_ctx(tmp_path)
+        int_result = engine.integrate(p.proposal_id, ctx)
+        assert int_result.rollback_available is True
+
+        # Archive must exist before rollback
+        from aria.evolution.integration import _safe_id
+        safe_pid = _safe_id(p.proposal_id)
+        archive_file = tmp_path / "archive" / f"{safe_pid}_prior.json"
+        assert archive_file.exists()
+
+        engine.rollback(p.proposal_id, ctx)
+        # Artifact must be restored
+        restored = (
+            tmp_path / "artifacts" / p.evolution_type.value / f"{safe_pid}.json"
+        )
+        assert restored.exists()
+
+    # ── Standard filesystem tests ──────────────────────────────────────────────
+
     def test_filesystem_integration_writes_file(self, tmp_path):
         store = InMemoryProposalStore()
         p = _approved_proposal()
         store.save(p)
         engine = IntegrationEngine(store=store)
-        ctx = IntegrationContext(
-            artifact_dir=str(tmp_path / "artifacts"),
-            archive_dir=str(tmp_path / "archive"),
-            dry_run=False,
-        )
+        ctx = _live_ctx(tmp_path)
         result = engine.integrate(p.proposal_id, ctx)
         assert result.success is True
         assert result.artifact_path is not None
@@ -545,14 +806,10 @@ class TestIntegrationEngine:
         p = _approved_proposal()
         store.save(p)
         engine = IntegrationEngine(store=store)
-        archive_dir = tmp_path / "archive"
-        ctx = IntegrationContext(
-            artifact_dir=str(tmp_path / "artifacts"),
-            archive_dir=str(archive_dir),
-            dry_run=False,
-        )
+        ctx = _live_ctx(tmp_path)
         result = engine.integrate(p.proposal_id, ctx)
         assert result.rollback_available is True
+        archive_dir = tmp_path / "archive"
         archive_files = list(archive_dir.iterdir())
         assert len(archive_files) == 1
 
