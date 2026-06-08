@@ -29,6 +29,14 @@ _WB_TOKENS = frozenset(["pr", "ci", "cd", "qa", "kpi", "ctr"])
 # test_review MUST precede ci_cd so "ci failing" / "tests failing" fire before "ci" / "failed".
 # kpi comes after ci_cd so "failed" in ci_cd doesn't eat KPI anomaly descriptions.
 _RULES = [
+    # Evolution must come first — "scan", "proposal", "rollback" are unambiguous
+    # and must not be eaten by general/ci_cd/qa rules.
+    (["capability gap", "self-improvement", "self improvement", "evolution proposal",
+      "scan for capability", "scan for gaps", "pending proposal", "pending update",
+      "evaluate proposal", "compare update", "compare version", "rollback component",
+      "revert component", "show pending self", "aria evolution", "governed update",
+      "awaiting approval", "canary deployment", "promote canary"],
+     "evolution", "Input asks about ARIA self-improvement, evolution proposals, or governed updates"),
     (["review test", "test review", "flaky", "flakiness", "flaky test", "ci failing",
       "tests failing", "test quality", "regression test", "test suite", "why are my tests"],
      "test_review", "Input asks to review or diagnose an existing test suite"),
@@ -81,10 +89,12 @@ Task types:
 - jira        : ticket, story, sprint, backlog, blocker, epic
 - qa          : generate new test cases, unit/integration tests, QA analysis, coverage gaps
 - test_review : review or diagnose EXISTING tests — flaky tests, CI failures, test quality
+- evolution   : ARIA self-improvement proposals, capability gaps, pending updates, canary deployment,
+                rollback component, compare update versions, governed self-evolution
 - general     : anything that does not clearly fit the above
 
 Respond with ONLY valid JSON, no markdown:
-{{"task_type": "<one of the 7 types>", "routing_reason": "<one sentence why>"}}"""
+{{"task_type": "<one of the 8 types>", "routing_reason": "<one sentence why>"}}"""
 
     _llm_chain = (
         ChatPromptTemplate.from_messages([("system", _SYSTEM), ("human", "{raw_input}")])
@@ -92,7 +102,7 @@ Respond with ONLY valid JSON, no markdown:
         | StrOutputParser()
     )
 
-VALID_TYPES = {"pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "analytics_qa", "general", "unknown"}
+VALID_TYPES = {"pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "analytics_qa", "evolution", "general", "unknown"}
 
 
 def router(state: ARIAState) -> dict:

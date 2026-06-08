@@ -670,6 +670,15 @@ def _build_evolution_approval_card(data: dict, task_id: str) -> dict:
         "color": "Accent",
     })
 
+    # Determine the specific update_id to approve/reject, if available.
+    # For compare_update and evaluate_proposal actions there is a single update.
+    # For scan/list, include the first queued update_id if present.
+    action_update_id = (
+        data.get("update_id")
+        or (update_ids[0] if update_ids else None)
+        or ""
+    )
+
     return {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -680,13 +689,21 @@ def _build_evolution_approval_card(data: dict, task_id: str) -> dict:
                 "type": "Action.Submit",
                 "title": "✅ Approve Update",
                 "style": "positive",
-                "data": {"aria_action": "approve", "task_id": task_id},
+                "data": {
+                    "aria_action":      "approve",
+                    "task_id":          task_id,
+                    "evolution_update_id": action_update_id,
+                },
             },
             {
                 "type": "Action.Submit",
                 "title": "❌ Reject Update",
                 "style": "destructive",
-                "data": {"aria_action": "reject", "task_id": task_id},
+                "data": {
+                    "aria_action":      "reject",
+                    "task_id":          task_id,
+                    "evolution_update_id": action_update_id,
+                },
             },
             {
                 "type": "Action.ShowCard",
@@ -746,6 +763,49 @@ def _execute_jira_after_approval(task_id: str) -> Optional[dict]:
     except Exception:
         pass
     return None
+
+
+def _execute_evolution_after_approval(update_id: str, approver: str) -> Optional[dict]:
+    """
+    Call UpdateManager.approve_update() when a Teams evolution card is approved.
+
+    Returns {"update_id": ..., "status": "canary", "approver": ...} on success.
+    Returns {"error": ...} on failure.
+    Never raises — caller surfaces the outcome to the user.
+    """
+    if not update_id:
+        return {"error": "No update_id in card payload — cannot approve."}
+    try:
+        from aria.nodes.evolution_node import get_update_manager
+        mgr = get_update_manager()
+        approved = mgr.approve_update(update_id, approver=approver)
+        return {
+            "update_id":  approved.update_id,
+            "component":  approved.component_name,
+            "version":    approved.semantic_version,
+            "status":     approved.status.value,
+            "approver":   approved.approver,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _execute_evolution_rejection(update_id: str, reason: str) -> Optional[dict]:
+    """
+    Call UpdateManager.reject_update() when a Teams evolution card is rejected.
+    """
+    if not update_id:
+        return {"error": "No update_id in card payload — cannot reject."}
+    try:
+        from aria.nodes.evolution_node import get_update_manager
+        mgr = get_update_manager()
+        rejected = mgr.reject_update(update_id, reason=reason)
+        return {
+            "update_id": rejected.update_id,
+            "status":    rejected.status.value,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 # Task types that require safe platform_evidence before a card is published.
@@ -850,6 +910,47 @@ class ARIAActivityHandler(ActivityHandler):
                 MessageFactory.text(f"Unknown card action: {action}")
             )
             return
+        from_name = (
+            getattr(turn_context.activity.from_property, "name", None)
+            or (turn_context.activity.from_property or {}).get("name", "teams-user")
+        )
+        evolution_update_id: str = value.get("evolution_update_id", "")
+
+        # ── Evolution approval path — direct UpdateManager call ────────────────
+        # Evolution cards carry an explicit evolution_update_id. When present,
+        # bypass the governance approval_gate (evolution uses UpdateManager's own
+        # approval lifecycle) and call approve/reject directly.
+        if evolution_update_id:
+            if action == "approve":
+                result = _execute_evolution_after_approval(evolution_update_id, approver=from_name)
+            else:
+                result = _execute_evolution_rejection(
+                    evolution_update_id,
+                    reason=f"Rejected via Teams card by {from_name}",
+                )
+
+            if result and "error" not in result:
+                status = result.get("status", "unknown")
+                component = result.get("component", evolution_update_id[:16])
+                version   = result.get("version", "")
+                verb      = "approved → canary" if action == "approve" else "rejected"
+                await turn_context.send_activity(
+                    MessageFactory.text(
+                        f"✅ Update {verb} by {from_name}.\n"
+                        f"**{component}** v{version} is now **{status}**."
+                    )
+                )
+            else:
+                err = (result or {}).get("error", "Unknown error")
+                await turn_context.send_activity(
+                    MessageFactory.text(
+                        f"⚠️ Evolution update action failed: {err}\n"
+                        f"Update ID: `{evolution_update_id[:20]}`"
+                    )
+                )
+            return
+
+        # ── Standard governance approval_gate path (Jira, PR, KPI, etc.) ───────
         try:
             from aria.governance import approval_gate
             pending = [r for r in approval_gate.get_for_task(task_id) if r.status == "pending"]
@@ -861,7 +962,6 @@ class ARIAActivityHandler(ActivityHandler):
                     )
                 )
                 return
-            from_name = (turn_context.activity.from_property or {}).get("name", "teams-user")
             resolved = 0
             jira_attempted: bool = False
             jira_created: Optional[dict] = None

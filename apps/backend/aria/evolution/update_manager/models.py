@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 # ── Enumerations ───────────────────────────────────────────────────────────────
@@ -78,12 +78,14 @@ class UpdateRelease(BaseModel):
     """
     An immutable versioned update record.
 
-    Use model_copy(update={...}) to advance lifecycle state — never mutate fields
-    directly.  The store always holds the latest version of each update_id.
+    model_config frozen=True enforces immutability — use model_copy(update={...})
+    to advance lifecycle state. The store always holds the latest version of each
+    update_id.
 
     content_hash MUST equal sha256(content.encode()) when content is present.
     Activation and rollback operations verify this before proceeding.
     """
+    model_config = ConfigDict(frozen=True)
     update_id:          str
     component_name:     str
     component_type:     ComponentType
@@ -134,7 +136,7 @@ class UpdateRelease(BaseModel):
     @field_validator("semantic_version")
     @classmethod
     def _valid_semver(cls, v: str) -> str:
-        if not re.match(r"^\d+\.\d+\.\d+", v):
+        if not re.match(r"^\d+\.\d+\.\d+$", v):
             raise ValueError(f"semantic_version must be semver (x.y.z), got {v!r}")
         return v
 

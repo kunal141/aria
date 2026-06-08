@@ -1014,3 +1014,208 @@ class TestChangelog:
 
         with pytest.raises(UpdateStateError):
             mgr.reject_update(upd.update_id, reason="Too late.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Codex P1/P2/P3 round-3 fixes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestCodexRound3Fixes:
+    """Tests for the 7 findings from the Codex round-3 review."""
+
+    # ── P3: Semver must be strict x.y.z ───────────────────────────────────────
+
+    def test_semver_with_suffix_rejected(self):
+        """1.2.3-alpha or 1.2.3.4 must not pass validation."""
+        content = "test content"
+        for bad_ver in ("1.2.3-alpha", "1.2.3.4", "1.2.3.beta", "1.2.3 extra"):
+            with pytest.raises(Exception):
+                UpdateRelease(
+                    update_id=f"upd-bad-{bad_ver[:5]}",
+                    component_name="x",
+                    component_type=ComponentType.prompt,
+                    semantic_version=bad_ver,
+                    content_hash=compute_hash(content),
+                    changelog="test",
+                    evidence_refs=[],
+                    proposer="aria",
+                    status=UpdateStatus.proposed,
+                    content=content,
+                )
+
+    def test_valid_semver_accepted(self):
+        content = "valid content"
+        upd = UpdateRelease(
+            update_id="upd-ok-semver",
+            component_name="comp",
+            component_type=ComponentType.prompt,
+            semantic_version="2.14.0",
+            content_hash=compute_hash(content),
+            changelog="ok",
+            evidence_refs=[],
+            proposer="aria",
+            status=UpdateStatus.proposed,
+            content=content,
+        )
+        assert upd.semantic_version == "2.14.0"
+
+    # ── P2: UpdateRelease is frozen ────────────────────────────────────────────
+
+    def test_update_release_is_immutable(self):
+        """Direct field mutation must raise."""
+        upd = _make_update()
+        with pytest.raises(Exception):  # pydantic ValidationError or TypeError
+            upd.status = UpdateStatus.active  # type: ignore[misc]
+
+    def test_model_copy_still_works(self):
+        """model_copy(update={...}) must produce a new object without error."""
+        upd = _make_update()
+        promoted = upd.model_copy(update={"status": UpdateStatus.canary, "canary_at": utc_now()})
+        assert promoted.status == UpdateStatus.canary
+        assert upd.status == UpdateStatus.awaiting_approval  # original unchanged
+
+    # ── P1: activate_canary requires approver ─────────────────────────────────
+
+    def test_activate_canary_requires_approver(self):
+        """activate_canary(update_id, approver) — self-approval must fail."""
+        upd   = _make_update(proposer="aria")
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr   = UpdateManager(store=store)
+
+        with pytest.raises(SelfApprovalError):
+            mgr.activate_canary(upd.update_id, approver="aria")
+
+    def test_activate_canary_with_valid_approver_succeeds(self):
+        upd   = _make_update(proposer="aria")
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr   = UpdateManager(store=store)
+
+        result = mgr.activate_canary(upd.update_id, approver="kunal")
+        assert result.status == UpdateStatus.canary
+
+    def test_activate_canary_evaluated_state_blocked(self):
+        """evaluated status is no longer a valid source for activate_canary."""
+        upd   = _make_update(status=UpdateStatus.evaluated)
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr   = UpdateManager(store=store)
+
+        with pytest.raises(UpdateStateError):
+            mgr.activate_canary(upd.update_id, approver="kunal")
+
+    # ── P2: Rollback requires non-None content ────────────────────────────────
+
+    def test_rollback_target_without_content_blocked(self):
+        """A restore target with no content must never succeed."""
+        content_none_target = UpdateRelease(
+            update_id="upd-no-content",
+            component_name="empty_component",
+            component_type=ComponentType.prompt,
+            semantic_version="1.0.0",
+            content_hash=compute_hash("placeholder"),  # hash mismatch — verify_hash fails
+            changelog="status-only record",
+            evidence_refs=[],
+            proposer="aria",
+            status=UpdateStatus.superseded,
+            content=None,   # no content!
+        )
+        current = _make_update(
+            update_id="upd-current-empty",
+            component="empty_component",
+            version="1.1.0",
+            status=UpdateStatus.active,
+        )
+
+        store = InMemoryUpdateStore()
+        store.save(content_none_target)
+        store.save(current)
+        mgr   = UpdateManager(store=store)
+
+        with pytest.raises((ValueError, HashMismatchError)):
+            mgr.rollback_update("empty_component", "1.0.0")
+
+    # ── P1: Evolution reachable from router ───────────────────────────────────
+
+    def test_router_classifies_evolution_intent(self):
+        """Keyword router must route evolution phrases to task_type=evolution."""
+        from aria.nodes.router import _keyword_classify
+
+        evolution_inputs = [
+            "scan for capability gaps",
+            "show pending self-improvement proposals",
+            "compare update versions",
+            "rollback component pr_review_prompt to 1.0.0",
+            "evaluate proposal prop-abc",
+            "what updates are awaiting approval",
+        ]
+        for phrase in evolution_inputs:
+            task_type, reason = _keyword_classify(phrase)
+            assert task_type == "evolution", (
+                f"Expected evolution, got {task_type!r} for: {phrase!r}"
+            )
+
+    def test_router_valid_types_includes_evolution(self):
+        from aria.nodes.router import VALID_TYPES
+        assert "evolution" in VALID_TYPES
+
+    # ── P1: File-backed persistence ────────────────────────────────────────────
+
+    def test_store_persists_across_instances(self, tmp_path):
+        """Records saved in one instance should load in a new instance."""
+        persist_file = tmp_path / "updates.jsonl"
+        upd = _make_update()
+
+        store1 = InMemoryUpdateStore(persist_path=persist_file)
+        store1.save(upd)
+
+        store2 = InMemoryUpdateStore(persist_path=persist_file)
+        loaded = store2.get(upd.update_id)
+        assert loaded is not None
+        assert loaded.update_id == upd.update_id
+        assert loaded.status == upd.status
+
+    def test_store_no_persist_path_stays_in_memory(self, tmp_path):
+        """Default persist_path=None — no file written."""
+        upd   = _make_update()
+        store = InMemoryUpdateStore(persist_path=None)
+        store.save(upd)
+        assert store.get(upd.update_id) is not None
+        # No files in tmp_path because persist_path=None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_store_corrupted_line_skipped_on_load(self, tmp_path):
+        """A malformed JSONL line must not crash startup."""
+        persist_file = tmp_path / "updates.jsonl"
+        upd = _make_update()
+
+        store1 = InMemoryUpdateStore(persist_path=persist_file)
+        store1.save(upd)
+
+        # Inject a corrupted line
+        with open(persist_file, "a") as fh:
+            fh.write("NOT VALID JSON\n")
+
+        store2 = InMemoryUpdateStore(persist_path=persist_file)
+        assert store2.get(upd.update_id) is not None  # good record still loaded
+
+    # ── P1: Teams evolution approval card carries update_id ───────────────────
+
+    def test_evolution_card_action_data_includes_update_id(self):
+        """Approve/Reject actions must carry evolution_update_id."""
+        from aria.integrations.teams_bot import _build_evolution_approval_card
+
+        data = {
+            "action":        "list_pending",
+            "count":         1,
+            "updates":       [{"update_id": "upd-test-001", "component": "x", "version": "1.0.0", "status": "awaiting_approval"}],
+            "message":       "1 update pending.",
+            "updates_queued": ["upd-test-001"],
+        }
+        card = _build_evolution_approval_card(data, task_id="task-abc")
+        actions = card["actions"]
+        approve_action = next(a for a in actions if "Approve" in a.get("title", ""))
+        reject_action  = next(a for a in actions if "Reject" in a.get("title", ""))
+        assert approve_action["data"].get("evolution_update_id") == "upd-test-001"
+        assert reject_action["data"].get("evolution_update_id")  == "upd-test-001"

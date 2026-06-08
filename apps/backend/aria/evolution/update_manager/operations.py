@@ -183,29 +183,21 @@ class UpdateManager:
         self._store.save(updated)
         return updated
 
-    def activate_canary(self, update_id: str) -> UpdateRelease:
+    def activate_canary(self, update_id: str, approver: str) -> UpdateRelease:
         """
-        Move an evaluated (or awaiting_approval) update into canary.
-        Used for low-risk updates that don't require a separate approval step
-        before canary testing begins.
+        Approve an awaiting_approval update and start canary deployment.
 
-        Raises ConstitutionalViolationError if safety checks fail.
+        Every path to canary requires human approval — there is no approval-free
+        fast-track regardless of risk level. Delegates to approve_update so all
+        guards (self-approval, authorized_approvers, constitutional) apply.
+
+        Raises:
+          UpdateStateError            — not in awaiting_approval status
+          SelfApprovalError           — approver == proposer
+          ValueError                  — approver not in authorized_approvers list
+          ConstitutionalViolationError — constitutional check fails
         """
-        update = self._require(update_id)
-        if update.status not in (UpdateStatus.evaluated, UpdateStatus.awaiting_approval):
-            raise UpdateStateError(
-                update_id, update.status, "activate_canary (requires evaluated or awaiting_approval)"
-            )
-        violations = check_constitutional(update)
-        if violations:
-            raise ConstitutionalViolationError(update_id, violations)
-
-        updated = update.model_copy(update={
-            "status":   UpdateStatus.canary,
-            "canary_at": utc_now(),
-        })
-        self._store.save(updated)
-        return updated
+        return self.approve_update(update_id, approver=approver)
 
     def promote_canary(self, update_id: str) -> UpdateRelease:
         """
@@ -285,6 +277,13 @@ class UpdateManager:
         if not candidates:
             raise UpdateNotFoundError(f"{component_name}@{target_version}")
         target = candidates[0]
+
+        # Content must be present — a status-only rollback is never sufficient
+        if not target.content:
+            raise ValueError(
+                f"rollback blocked — restore target {component_name}@{target_version} "
+                "has no content to restore (status-only record)"
+            )
 
         # Hash verification on restore target
         if not target.verify_hash():

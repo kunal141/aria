@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Optional
 
 from aria.evolution.models import ProposalStatus
@@ -33,9 +34,12 @@ from aria.evolution.update_manager.operations import UpdateManager
 from aria.evolution.update_manager.store import InMemoryUpdateStore
 from aria.evolution.store import InMemoryProposalStore
 
-# ── Module-level singletons (V1 in-memory; swap for persistent stores in V2) ──
+# ── Module-level singletons ────────────────────────────────────────────────────
+# update_releases.jsonl lives next to work_ledger.jsonl in the backend root.
+_UPDATE_RELEASES_PATH = Path(__file__).parent.parent.parent / "update_releases.jsonl"
+
 _proposal_store = InMemoryProposalStore()
-_update_store   = InMemoryUpdateStore()
+_update_store   = InMemoryUpdateStore(persist_path=_UPDATE_RELEASES_PATH)
 _update_manager = UpdateManager(store=_update_store)
 
 

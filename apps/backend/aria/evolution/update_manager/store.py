@@ -3,13 +3,20 @@ Update Store — Week 28
 
 UpdateStore Protocol + InMemoryUpdateStore.
 
-Thread-safety note: V1 is single-process; concurrency protection is via a
-per-operation lock for activation to prevent double-activation. General store
-operations are not thread-safe (add a threading.Lock in V2 if needed).
+Persistence: InMemoryUpdateStore accepts an optional `persist_path`. When set,
+every save() rewrites the file (JSON Lines, one UpdateRelease per line). On init
+the file is loaded if it exists. This gives update records restart-survival
+without a database dependency in V1.
+
+Thread-safety note: general CRUD operations are protected by a single RW lock.
+The activation set has its own lock so promotion/rollback never block reads.
 """
 from __future__ import annotations
 
+import json
+import os
 import threading
+from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
 
 from aria.evolution.update_manager.models import UpdateRelease, UpdateStatus
@@ -26,34 +33,91 @@ class UpdateStore(Protocol):
 
 
 class InMemoryUpdateStore:
-    """In-memory UpdateStore with an activation lock for concurrency safety."""
+    """
+    In-memory UpdateStore with optional file persistence and activation lock.
 
-    def __init__(self) -> None:
+    Parameters
+    ----------
+    persist_path : Path or str, optional
+        If given, each save() rewrites this JSONL file so records survive
+        a process restart. Default: ``None`` (no persistence — safe for tests).
+        Production callers should pass an explicit path, e.g.:
+          InMemoryUpdateStore(persist_path=Path("update_releases.jsonl"))
+    """
+
+    def __init__(self, persist_path: Optional[Path | str] = None) -> None:
         self._store: dict[str, UpdateRelease] = {}
-        self._activation_lock   = threading.Lock()
-        self._activating: set[str] = set()   # update_ids currently being activated
+        self._rw_lock         = threading.Lock()
+        self._activation_lock = threading.Lock()
+        self._activating: set[str] = set()
+        self._persist_path    = Path(persist_path) if persist_path is not None else None
+        if self._persist_path is not None:
+            self._load()
+
+    # ── Persistence ────────────────────────────────────────────────────────────
+
+    def _load(self) -> None:
+        """Load existing records from JSONL file on startup."""
+        if self._persist_path is None or not self._persist_path.exists():
+            return
+        try:
+            with open(self._persist_path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        update = UpdateRelease.model_validate(data)
+                        self._store[update.update_id] = update
+                    except Exception:
+                        pass  # skip malformed lines — never crash on startup
+        except OSError:
+            pass
+
+    def _flush(self) -> None:
+        """Rewrite the JSONL file with current in-memory state."""
+        if self._persist_path is None:
+            return
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._persist_path.with_suffix(".jsonl.tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                for update in self._store.values():
+                    fh.write(update.model_dump_json() + "\n")
+            os.replace(tmp, self._persist_path)  # atomic rename on all platforms
+        except OSError:
+            pass  # persistence is best-effort; never block the caller
 
     # ── CRUD ───────────────────────────────────────────────────────────────────
 
     def save(self, update: UpdateRelease) -> None:
-        self._store[update.update_id] = update
+        with self._rw_lock:
+            self._store[update.update_id] = update
+            self._flush()
 
     def get(self, update_id: str) -> Optional[UpdateRelease]:
-        return self._store.get(update_id)
+        with self._rw_lock:
+            return self._store.get(update_id)
 
     def list_all(self) -> list[UpdateRelease]:
-        return list(self._store.values())
+        with self._rw_lock:
+            return list(self._store.values())
 
     def list_by_status(self, status: UpdateStatus) -> list[UpdateRelease]:
-        return [u for u in self._store.values() if u.status == status]
+        with self._rw_lock:
+            return [u for u in self._store.values() if u.status == status]
 
     def list_by_component(self, component_name: str) -> list[UpdateRelease]:
-        return [u for u in self._store.values() if u.component_name == component_name]
+        with self._rw_lock:
+            return [u for u in self._store.values() if u.component_name == component_name]
 
     def delete(self, update_id: str) -> bool:
-        if update_id in self._store:
-            del self._store[update_id]
-            return True
+        with self._rw_lock:
+            if update_id in self._store:
+                del self._store[update_id]
+                self._flush()
+                return True
         return False
 
     # ── Activation lock ────────────────────────────────────────────────────────
@@ -79,4 +143,5 @@ class InMemoryUpdateStore:
             return update_id in self._activating
 
     def __len__(self) -> int:
-        return len(self._store)
+        with self._rw_lock:
+            return len(self._store)
