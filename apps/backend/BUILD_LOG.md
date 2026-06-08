@@ -386,6 +386,200 @@ The registry decouples skill discovery from skill execution.
 
 ---
 
+## WEEK 28 — Governed Self-Improvement & Update Manager
+
+**Primary objective**: Build ARIA's governed self-improvement layer — versioned updates,
+approval gates, canary deployment, and verified rollback. The AI Capability Marketplace
+is NOT built yet; it is deferred until this end-to-end lifecycle is proven.
+
+**Completion bar achieved**: one versioned prompt update travels through:
+  discovery → proposal → evaluation → T4 approval → canary → promotion
+  → comparison → verified rollback
+
+---
+
+### Core data contracts — `aria/evolution/update_manager/models.py`
+
+**What**: Immutable `UpdateRelease` Pydantic model with full 9-state lifecycle.
+
+**Key types**:
+- `UpdateStatus` (str Enum): discovered → proposed → evaluated → awaiting_approval
+  → canary → active → superseded / rolled_back / rejected
+- `ComponentType`: prompt, retrieval_config, evaluation_rubric, routing_rule, skill,
+  voice_ux, knowledge_ingestion
+- `ImpactLevel`: none / low / medium / high / critical
+- `TERMINAL_STATUSES: frozenset` — {active, superseded, rolled_back, rejected}
+- `compute_hash(content: str) → str` — SHA-256 hex (64 chars) of content string
+- `UpdateRelease.verify_hash()` — computes hash of current content, compares to stored
+
+**Validators**:
+- `content_hash` must be exactly 64 hex chars (SHA-256)
+- `semantic_version` must match x.y.z semver pattern
+
+**Exceptions**: `UpdateNotFoundError`, `UpdateStateError`, `SelfApprovalError`,
+  `ConstitutionalViolationError`, `HashMismatchError`, `ConcurrentActivationError`
+
+**Key insight**: `is_terminal()` prevents any mutation after reaching a terminal state.
+This is the append-only audit log property — terminal updates are permanent records.
+
+---
+
+### Thread-safe store — `aria/evolution/update_manager/store.py`
+
+**What**: `UpdateStore` Protocol + `InMemoryUpdateStore`.
+
+**Concurrency safety**:
+- `begin_activation(update_id) → bool` — returns False if already activating (concurrent prevention)
+- `end_activation(update_id)` — releases lock; always called in `finally`
+- Uses `threading.Lock` protecting a `set[str]` of in-flight activation IDs
+
+**Key insight**: The `__len__` method making empty stores falsy requires callers to use
+`if store is not None` rather than `store or InMemoryUpdateStore()`. Fixed in pipeline.py.
+
+---
+
+### Constitutional AI safety — `aria/evolution/update_manager/constitutional.py`
+
+**What**: 22 deterministic regex rules blocking governance-weakening proposals.
+
+**Checked surfaces**: `update.changelog`, `update.content`, each `update.evidence_refs` item.
+
+**Rules block**:
+- Governance weakening: disable/remove/weaken governance, bypass T4/T5, skip approval, auto-approve
+- Evidence gate disabling: disable/remove/bypass evidence gate
+- Privacy gate disabling: disable/remove/bypass privacy gate
+- Audit log disabling: disable/skip/remove audit
+- Risk ceiling manipulation: raise/increase own risk ceiling
+- Self-modification: modify/update/override constitutional rules
+- Executable code: exec(), eval(), __import__()
+- Marketplace injection: import marketplace, from marketplace import
+
+**Key insight**: Constitutional rules are checked TWICE — at `activate_canary()` and again
+at `approve_update()`. Two independent checks prevent an approval race condition.
+
+---
+
+### Health checks — `aria/evolution/update_manager/health.py`
+
+**What**: 4 deterministic health checks run before canary promotion and rollback.
+
+**Checks**: content_non_empty, hash_verification, constitutional_check, version_format
+
+**Key insight**: Health checks are the last line of defence before `active` status.
+A hash that passes `verify_hash()` but was tampered since the check will fail here.
+
+---
+
+### Update Manager operations — `aria/evolution/update_manager/operations.py`
+
+**What**: `UpdateManager` class with all 9 lifecycle operations.
+
+**Operations**:
+1. `list_pending_updates()` — awaiting_approval + canary + evaluated + proposed
+2. `get_update(update_id)`
+3. `compare_update(update_id) → UpdateComparison` — `difflib.unified_diff` on content
+4. `show_changelog(component_name) → list[UpdateRelease]` — oldest first
+5. `approve_update(update_id, approver)` — T4 gate: awaiting_approval → canary
+   Blocks: self-approval, stale state, unauthorized approver, constitutional violations
+   Idempotent: same approver on already-canary = no-op
+6. `reject_update(update_id, reason)` — any non-terminal → rejected
+7. `activate_canary(update_id)` — evaluated/awaiting_approval → canary with constitutional check
+8. `promote_canary(update_id)` — canary → active after hash + health + concurrency checks
+   Supersedes any prior active version of the same component
+9. `rollback_update(component_name, target_version)` — verified hash + health → restore target to active
+
+**Key insight**: `promote_canary` uses `try/finally` to guarantee `end_activation` is
+called even if hash verification or health checks raise. This prevents a crashed promotion
+from permanently blocking all future activations of the same update.
+
+---
+
+### Proposal Pipeline — `aria/evolution/pipeline.py`
+
+**What**: `ProposalPipeline` connects EvolutionMonitor → DebateEngine → run_sandbox → UpdateRelease.
+
+**Steps**:
+1. Debate — if not "approve", proposal is rejected; return `PipelineResult(update=None)`
+2. Sandbox — if fails, proposal sandbox_failed; return `PipelineResult(update=None)`
+3. Create `UpdateRelease` in `awaiting_approval` status with SHA-256 content hash
+
+**Bug fixed**: `update_store or InMemoryUpdateStore()` was creating a new store when an
+empty store was passed (empty store is falsy via `__len__`). Changed to `is not None` check.
+
+---
+
+### Evolution node wiring — `aria/nodes/evolution_node.py`
+
+**What**: `evolution_node(state: dict) → dict` — routes natural language evolution intents.
+
+**Supported intents** (matched via keywords in `raw_input`):
+- `scan / capability gap / discover` → `_handle_scan` — runs EvolutionMonitor + pipeline
+- `pending / show proposal / self-improvement` → `_handle_list_pending`
+- `evaluate proposal <id>` → `_handle_evaluate_proposal`
+- `compare update <id>` → `_handle_compare_update`
+- `rollback component <name> to <version>` → `_handle_rollback`
+
+**Graph wiring** (`aria/graph.py`): "evolution" task_type → "evolution_node" → "respond"
+
+---
+
+### Teams approval card — `aria/integrations/teams_bot.py`
+
+**What**: `_build_evolution_approval_card(data, task_id)` — Adaptive Card for T4 approval UX.
+
+**Card sections**:
+- Version diff: from/to versions, component name, security/privacy impact
+- Changelog: why ARIA proposes this update
+- Diff preview: first 8 lines of `difflib.unified_diff` output
+- Canary plan: deployment strategy (5% traffic, 24h monitoring)
+- Rollback target: what version will be restored if promotion fails
+- Evidence refs: up to 3 supporting work ledger entries
+- Governance notice: reminder that ARIA only proposes, activation requires T4 approval
+- Actions: "✅ Approve Update" / "❌ Reject Update" / "📋 All Pending Updates" (ShowCard)
+
+**Handles 5 action types**: compare_update, list_pending, scan, evaluate_proposal, rollback
+
+---
+
+### Evolution package exports — `aria/evolution/__init__.py`
+
+**What**: Updated to export all Week 28 public API items.
+
+**New exports**: `ProposalPipeline`, `PipelineResult`, `UpdateRelease`, `UpdateStatus`,
+`ComponentType`, `ImpactLevel`, `UpdateComparison`, all exception classes, `compute_hash`,
+`UpdateStore`, `InMemoryUpdateStore`, `UpdateManager`
+
+---
+
+### Test suite — `tests/test_week28_evolution.py`
+
+**What**: 58 tests covering 13 adversarial scenarios + end-to-end completion bar.
+
+**Scenarios**:
+1. Version creation — fields, hash validation, invalid semver/hash rejected
+2. Update comparison — diff shown, empty diff for no prior content
+3. Forged approval blocked — unauthorized approver list enforced
+4. Stale approval blocked — active/rejected/canary states block re-approval
+5. Constitutional attack blocked — 9 malicious patterns all caught; content checked too
+6. Failed sandbox blocks pipeline — mocked SandboxResult(passed=False)
+7. Failed health check blocks promotion — hash tamper + health mock both raise
+8. Hash mismatch blocks activation — verify_hash() fails after content tamper
+9. Concurrent activation blocked — begin_activation() returns False on second call
+10. Interrupted deployment recoverable — finally-block releases lock; reject still works
+11. Rollback restores prior version — target→active, current→rolled_back
+12. Work-ledger signal creates proposal — 10 repeated tasks detected by monitor
+13. Evidence coverage gap — 5 failed tasks signal a gap
+
+**End-to-end test**: `TestEndToEndCompletionBar.test_full_governed_lifecycle` — one prompt
+update traverses the full lifecycle in a single test.
+
+**Full suite**: 667 tests passing (58 new in Week 28, up from 609).
+
+**Claim**: ARIA now supports governed self-improvement proposals with versioned approval,
+canary deployment, and verified rollback. The marketplace is explicitly deferred.
+
+---
+
 ## REBUILD CHECKLIST
 
 To rebuild ARIA from scratch (learning exercise):

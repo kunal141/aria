@@ -510,6 +510,209 @@ def _build_jira_card(data: dict, task_id: str) -> dict:
     }
 
 
+def _build_evolution_approval_card(data: dict, task_id: str) -> dict:
+    """
+    Adaptive Card schema for a governed self-improvement update awaiting T4 approval.
+
+    Shows: version diff, changelog, why ARIA proposes the update, supporting evidence,
+    risk assessment, canary plan, rollback target, and approve/reject actions.
+    """
+    action   = data.get("action", "")
+    updates  = data.get("updates", [])
+    message  = data.get("message", "")
+
+    # For scan/evaluate flows, grab the first queued update for detail display
+    update_ids = data.get("updates_queued", [])
+    update_id  = update_ids[0] if update_ids else data.get("update_id", "")
+
+    body: list = [
+        {
+            "type": "TextBlock",
+            "text": "🧬 ARIA Self-Improvement Proposal",
+            "weight": "Bolder",
+            "size": "Large",
+        },
+        {
+            "type": "TextBlock",
+            "text": message or "ARIA has submitted a governed self-improvement proposal.",
+            "wrap": True,
+        },
+    ]
+
+    # ── Pending updates list (list_pending action) ─────────────────────────────
+    if action == "list_pending" and updates:
+        facts = [
+            {
+                "title": u.get("update_id", "?")[:16],
+                "value": (
+                    f"{u.get('component', '?')} v{u.get('version', '?')} "
+                    f"— {u.get('status', '?')}"
+                ),
+            }
+            for u in updates[:5]
+        ]
+        body.append({"type": "FactSet", "facts": facts})
+
+    # ── Version comparison card (compare_update action) ────────────────────────
+    elif action == "compare_update":
+        from_ver   = data.get("from_version", "N/A")
+        to_ver     = data.get("to_version", "N/A")
+        component  = data.get("component", "unknown")
+        changelog  = data.get("changelog", "")
+        diff_lines = data.get("diff_lines", [])[:8]
+        sec_impact = data.get("security_impact", "none")
+        prv_impact = data.get("privacy_impact", "none")
+        canary     = data.get("canary_plan", "")
+        rollback   = data.get("rollback_target", "")
+        evidence   = data.get("evidence_refs", [])[:3]
+
+        impact_color = "Attention" if sec_impact not in ("none", "minimal") else "Default"
+
+        body += [
+            {
+                "type": "FactSet",
+                "facts": [
+                    {"title": "Component",   "value": component},
+                    {"title": "From",        "value": from_ver or "N/A"},
+                    {"title": "To",          "value": to_ver},
+                    {"title": "Security",    "value": sec_impact},
+                    {"title": "Privacy",     "value": prv_impact},
+                    {"title": "Update ID",   "value": (update_id or data.get("update_id", "?"))[:20]},
+                    {"title": "Task ID",     "value": task_id[:12]},
+                ],
+            },
+            {
+                "type": "TextBlock",
+                "text": f"**Changelog:** {changelog}" if changelog else "No changelog provided.",
+                "wrap": True,
+                "color": impact_color,
+            },
+        ]
+
+        if diff_lines:
+            body.append({
+                "type": "TextBlock",
+                "text": "**Diff preview:**\n" + "\n".join(f"`{ln}`" for ln in diff_lines),
+                "wrap": True,
+                "fontType": "Monospace",
+            })
+
+        if canary:
+            body.append({"type": "TextBlock", "text": f"🐤 **Canary plan:** {canary}", "wrap": True})
+
+        if rollback:
+            body.append({"type": "TextBlock", "text": f"↩️ **Rollback target:** {rollback}", "wrap": True})
+
+        if evidence:
+            body.append({
+                "type": "FactSet",
+                "facts": [{"title": f"Evidence {i + 1}", "value": str(e)} for i, e in enumerate(evidence)],
+            })
+
+    # ── Scan / evaluate summary ────────────────────────────────────────────────
+    elif action in ("scan", "evaluate_proposal"):
+        blocked      = data.get("blocked", [])
+        proposal_id  = data.get("proposal_id", "")
+        succeeded    = data.get("succeeded")
+        reason       = data.get("blocked_reason", "")
+
+        facts = [{"title": "Task ID", "value": task_id[:12]}]
+        if action == "scan":
+            facts += [
+                {"title": "Scanned tasks",    "value": str(data.get("scanned_tasks", 0))},
+                {"title": "Signals detected", "value": str(data.get("signals_detected", 0))},
+                {"title": "Proposals found",  "value": str(data.get("proposals_found", 0))},
+                {"title": "Updates queued",   "value": str(len(update_ids))},
+            ]
+        else:
+            facts += [
+                {"title": "Proposal",  "value": proposal_id[:20]},
+                {"title": "Succeeded", "value": "Yes" if succeeded else "No"},
+            ]
+            if reason:
+                facts.append({"title": "Blocked reason", "value": reason[:120]})
+
+        body.append({"type": "FactSet", "facts": facts})
+
+        if blocked:
+            body.append({
+                "type": "TextBlock",
+                "text": f"⚠️ Blocked: {'; '.join(blocked[:3])}",
+                "color": "Warning",
+                "wrap": True,
+            })
+
+    # ── Rollback result ────────────────────────────────────────────────────────
+    elif action == "rollback":
+        component  = data.get("component", "?")
+        restored   = data.get("restored_to", "?")
+        err        = data.get("error", "")
+        body.append({
+            "type": "FactSet",
+            "facts": [
+                {"title": "Component",   "value": component},
+                {"title": "Restored to", "value": restored},
+                {"title": "Status",      "value": "Error: " + err if err else "Rolled back"},
+                {"title": "Task ID",     "value": task_id[:12]},
+            ],
+        })
+
+    # ── Governance notice ──────────────────────────────────────────────────────
+    body.append({
+        "type": "TextBlock",
+        "text": (
+            "⚖️ **ARIA Governance**: ARIA may only PROPOSE updates. "
+            "Activation requires explicit T4 human approval. "
+            "Constitutional rules are enforced before any update is queued."
+        ),
+        "wrap": True,
+        "size": "Small",
+        "color": "Accent",
+    })
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": body,
+        "actions": [
+            {
+                "type": "Action.Submit",
+                "title": "✅ Approve Update",
+                "style": "positive",
+                "data": {"aria_action": "approve", "task_id": task_id},
+            },
+            {
+                "type": "Action.Submit",
+                "title": "❌ Reject Update",
+                "style": "destructive",
+                "data": {"aria_action": "reject", "task_id": task_id},
+            },
+            {
+                "type": "Action.ShowCard",
+                "title": "📋 All Pending Updates",
+                "card": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": (
+                                "\n".join(
+                                    f"• {u.get('update_id', '?')[:16]}: "
+                                    f"{u.get('component', '?')} v{u.get('version', '?')}"
+                                    for u in updates[:5]
+                                )
+                                or "No pending updates."
+                            ),
+                            "wrap": True,
+                        }
+                    ],
+                },
+            },
+        ],
+    }
+
+
 def _execute_jira_after_approval(task_id: str) -> Optional[dict]:
     """
     Execute Jira ticket creation immediately after T4 approval from a Teams card.
@@ -593,6 +796,8 @@ def _build_card(
         return _build_cicd_card(data, task_id, evidenced=evidenced)
     if task_type == "jira":
         return _build_jira_card(data, task_id)
+    if task_type == "evolution":
+        return _build_evolution_approval_card(data, task_id)
     return None
 
 

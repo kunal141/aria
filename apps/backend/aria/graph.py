@@ -8,6 +8,7 @@ from aria.nodes.skill_nodes import (
     pr_review_node, kpi_node, qa_node, test_review_node, ci_cd_node,
     jira_node, analytics_qa_crew_node, general_node,
 )
+from aria.nodes.evolution_node import evolution_node
 
 
 def _route_to_skill(state: ARIAState) -> str:
@@ -26,6 +27,7 @@ def _route_to_skill(state: ARIAState) -> str:
         "ci_cd":        "ci_cd_node",
         "jira":         "jira_node",
         "analytics_qa": "analytics_qa_crew_node",
+        "evolution":    "evolution_node",
     }.get(state.get("task_type", "general"), "general_node")
 
 
@@ -42,6 +44,7 @@ def build_graph():
     graph.add_node("ci_cd_node",              ci_cd_node)
     graph.add_node("jira_node",               jira_node)
     graph.add_node("analytics_qa_crew_node",  analytics_qa_crew_node)
+    graph.add_node("evolution_node",           evolution_node)
     graph.add_node("general_node",            general_node)
     graph.add_node("respond",        respond)
 
@@ -63,6 +66,7 @@ def build_graph():
             "ci_cd_node":             "ci_cd_node",
             "jira_node":              "jira_node",
             "analytics_qa_crew_node": "analytics_qa_crew_node",
+            "evolution_node":         "evolution_node",
             "general_node":           "general_node",
         }
     )
@@ -70,7 +74,8 @@ def build_graph():
     # All skill nodes converge back to respond
     for skill_node in [
         "pr_review_node", "kpi_node", "qa_node", "test_review_node",
-        "ci_cd_node", "jira_node", "analytics_qa_crew_node", "general_node",
+        "ci_cd_node", "jira_node", "analytics_qa_crew_node",
+        "evolution_node", "general_node",
     ]:
         graph.add_edge(skill_node, "respond")
 
