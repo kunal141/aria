@@ -250,3 +250,31 @@ bypassing any gate. `ci_cd_node` had no evidence assembly at all.
 ### Verified clean
 - `uv run pytest -q`: **529 passed**
 - Git working tree: clean
+
+---
+
+## Week 27 — Evolution Intelligence + RAPTOR — `(2026-06-07)`
+
+### Scope complete
+- `aria/evolution/models.py`: Full typed contract library — `EvolutionType` (9 types), `RISK_CEILING` per type, `ProposalStatus` (10 states: draft→integrated/rolled_back), `DebateArgument`, `DebateVerdict`, `SandboxResult`, `IntegrationResult`, `EvolutionProposal` (full lifecycle model with `exceeds_risk_ceiling()` + `is_ready_for_integration()`)
+- `aria/evolution/store.py`: `ProposalStore` Protocol + `InMemoryProposalStore` — save/get/list/delete with status filtering
+- `aria/evolution/monitor.py`: `EvolutionMonitor` — scans work ledger JSONL; detects high_error_rate, low_support_rate, repeated_pattern signals; emits ranked draft `EvolutionProposal` candidates with deterministic stable IDs; all proposals remain DRAFT (no auto-submission)
+- `aria/evolution/debate.py`: `DebateEngine` — AutoGen-inspired three-agent debate (ResearchAgent + ScepticAgent + ModeratorAgent); LLM-backed path (langchain-anthropic) + deterministic heuristic fallback (no API key needed); auto-rejects proposals exceeding RISK_CEILING; full transcript recorded in `DebateVerdict`
+- `aria/evolution/sandbox.py`: `run_sandbox()` — 4 deterministic checks: compile_check (ast.parse), schema_check (prose fields non-empty), risk_ceiling_check, golden_test (evidence quality heuristic); `passed=False` blocks integration with no bypass
+- `aria/evolution/raptor.py`: `RaptorBuilder` + `RaptorTree` + `RaptorChunk` — 3-level RAPTOR hierarchy (Level 0 raw leaves → Level 1 group summaries → Level 2 root summary); extractive summarisation in V1 (deterministic); `query_tree()` keyword overlap retrieval across all levels; parent/child links maintained for path-to-root traversal
+- `aria/evolution/integration.py`: `IntegrationEngine` — governed integration through T4 gate; requires `is_ready_for_integration()` (all 3 gates: debate approved + sandbox passed + human T4 approval); archive-before-integrate; rollback sets `rolled_back` status; dry_run mode for testing
+- `aria/evolution/__init__.py`: Public API exports for all evolution components
+- `tests/test_evolution.py`: 62 deterministic tests — models (risk ceiling, lifecycle validators), store CRUD, monitor (signal detection, proposal generation, stable IDs), debate (heuristic approve/defer/reject, auto-reject ceiling, transcript completeness), sandbox (all 4 checks, compile pass/fail, golden test), RAPTOR (tree structure, parent/child consistency, query retrieval, level correctness), integration (dry-run, status transitions, filesystem writes, rollback), full lifecycle round-trip
+
+### Key invariants enforced and tested
+- `is_ready_for_integration()` requires ALL three gates: debate `recommendation == "approve"` + `sandbox_result.passed == True` + `approved_by is not None` + `status == ProposalStatus.approved`
+- Risk ceiling auto-reject: proposals exceeding type ceiling rejected before debate starts (confidence=1.0)
+- Monitor proposals always DRAFT — no autonomous submission
+- Sandbox `passed=False` → integration blocked regardless of approval state
+- RAPTOR parent/child consistency enforced in test suite
+- Heuristic debate produces deterministic results without LLM (test-safe)
+
+### Verified clean
+- `uv run pytest -q`: **591 passed**, 2 warnings
+- Python compilation: passed
+- Git working tree: clean
