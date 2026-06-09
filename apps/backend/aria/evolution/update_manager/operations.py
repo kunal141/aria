@@ -24,6 +24,8 @@ Rollback invariants:
 from __future__ import annotations
 
 import difflib
+import os
+from pathlib import Path
 from typing import Optional
 
 from aria.evolution.update_manager.constitutional import check_constitutional
@@ -45,6 +47,31 @@ from aria.evolution.update_manager.models import (
     utc_now,
 )
 from aria.evolution.update_manager.store import InMemoryUpdateStore, UpdateStore
+
+
+def _write_artifact_atomic(path_str: str, content: str) -> None:
+    """Atomically write content to path via tmp + os.replace (crash-safe)."""
+    path = Path(path_str)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
+
+def _verify_artifact(path_str: str, expected_hash: str) -> bool:
+    """Read the file at path_str and verify its SHA-256 matches expected_hash."""
+    try:
+        content = Path(path_str).read_text(encoding="utf-8")
+        return compute_hash(content) == expected_hash
+    except Exception:
+        return False
 
 
 class UpdateManager:
@@ -234,6 +261,12 @@ class UpdateManager:
                     + "; ".join(health.findings)
                 )
 
+            # Write content to filesystem before committing to store
+            if update.artifact_path and update.content:
+                _write_artifact_atomic(update.artifact_path, update.content)
+                if not _verify_artifact(update.artifact_path, update.content_hash):
+                    raise HashMismatchError(update_id)
+
             # Supersede any existing active version for the same component
             self._supersede_active(update.component_name, exclude_id=update_id)
 
@@ -296,6 +329,12 @@ class UpdateManager:
                 f"rollback blocked — health checks failed on restore target "
                 f"{component_name}@{target_version}: " + "; ".join(health.findings)
             )
+
+        # Restore artifact to filesystem before committing to store
+        if target.artifact_path and target.content:
+            _write_artifact_atomic(target.artifact_path, target.content)
+            if not _verify_artifact(target.artifact_path, target.content_hash):
+                raise HashMismatchError(target.update_id)
 
         # Mark currently active as rolled_back
         active = self._find_active(component_name)

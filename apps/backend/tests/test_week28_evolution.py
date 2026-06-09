@@ -1219,3 +1219,180 @@ class TestCodexRound3Fixes:
         reject_action  = next(a for a in actions if "Reject" in a.get("title", ""))
         assert approve_action["data"].get("evolution_update_id") == "upd-test-001"
         assert reject_action["data"].get("evolution_update_id")  == "upd-test-001"
+
+    # ── P1: Teams approval changes UpdateManager state ────────────────────────
+
+    def test_teams_approval_changes_status_to_canary(self):
+        """_execute_evolution_after_approval must move update to canary status."""
+        from unittest.mock import patch
+        from aria.integrations.teams_bot import _execute_evolution_after_approval
+        from aria.evolution.update_manager.operations import UpdateManager
+        from aria.evolution.update_manager.store import InMemoryUpdateStore
+
+        upd   = _make_update(proposer="aria", status=UpdateStatus.awaiting_approval)
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr   = UpdateManager(store=store)
+
+        with patch("aria.nodes.evolution_node.get_update_manager", return_value=mgr):
+            result = _execute_evolution_after_approval(upd.update_id, approver="kunal")
+
+        assert result is not None
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert result["status"] == "canary"
+        assert result["approver"] == "kunal"
+
+        stored = store.get(upd.update_id)
+        assert stored is not None
+        assert stored.status == UpdateStatus.canary
+
+    def test_teams_rejection_changes_status_to_rejected(self):
+        """_execute_evolution_rejection must move update to rejected status."""
+        from unittest.mock import patch
+        from aria.integrations.teams_bot import _execute_evolution_rejection
+        from aria.evolution.update_manager.operations import UpdateManager
+        from aria.evolution.update_manager.store import InMemoryUpdateStore
+
+        upd   = _make_update(proposer="aria", status=UpdateStatus.awaiting_approval)
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr   = UpdateManager(store=store)
+
+        with patch("aria.nodes.evolution_node.get_update_manager", return_value=mgr):
+            result = _execute_evolution_rejection(upd.update_id, reason="Not this sprint")
+
+        assert result is not None
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert result["status"] == "rejected"
+
+        stored = store.get(upd.update_id)
+        assert stored is not None
+        assert stored.status == UpdateStatus.rejected
+
+    def test_teams_approval_self_approval_returns_error(self):
+        """Teams approval by proposer must return an error dict, not raise."""
+        from unittest.mock import patch
+        from aria.integrations.teams_bot import _execute_evolution_after_approval
+        from aria.evolution.update_manager.operations import UpdateManager
+        from aria.evolution.update_manager.store import InMemoryUpdateStore
+
+        upd   = _make_update(proposer="kunal", status=UpdateStatus.awaiting_approval)
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr   = UpdateManager(store=store)
+
+        with patch("aria.nodes.evolution_node.get_update_manager", return_value=mgr):
+            result = _execute_evolution_after_approval(upd.update_id, approver="kunal")
+
+        assert result is not None
+        assert "error" in result  # self-approval → error
+
+    # ── P1: Graph routes evolution intent to evolution_node ──────────────────
+
+    def test_graph_routes_evolution_to_skill(self):
+        """Full graph invocation with an evolution phrase must reach evolution_node."""
+        from aria.graph import build_graph
+
+        g = build_graph()
+        state = {
+            "task_id":        "test-evo-routing",
+            "raw_input":      "scan for capability gaps",
+            "task_type":      None,
+            "task_status":    "pending",
+            "routing_reason": None,
+            "steps_completed": [],
+            "skill_name":     None,
+            "skill_output":   None,
+            "response":       None,
+            "messages":       [],
+            "error":          None,
+        }
+
+        result = g.invoke(state)
+        assert result["skill_name"] == "evolution", (
+            f"Expected skill_name='evolution', got {result.get('skill_name')!r}. "
+            f"task_type={result.get('task_type')!r}"
+        )
+        import json
+        data = json.loads(result["skill_output"])
+        assert data["action"] == "scan"
+
+    # ── P5: Artifact write in promote_canary ──────────────────────────────────
+
+    def test_promote_canary_writes_artifact_to_disk(self, tmp_path):
+        """promote_canary must write content to artifact_path when set."""
+        artifact_file = tmp_path / "pr_review_prompt.txt"
+        content = "# PR Review Prompt v1.1.0\nImproved content."
+        upd = UpdateRelease(
+            update_id="upd-artifact-write",
+            component_name="pr_review_prompt",
+            component_type=ComponentType.prompt,
+            semantic_version="1.1.0",
+            content_hash=compute_hash(content),
+            changelog="Improved prompt.",
+            evidence_refs=[],
+            proposer="aria",
+            status=UpdateStatus.canary,
+            content=content,
+            artifact_path=str(artifact_file),
+        )
+        store = InMemoryUpdateStore()
+        store.save(upd)
+        mgr = UpdateManager(store=store)
+
+        active = mgr.promote_canary(upd.update_id)
+
+        assert active.status == UpdateStatus.active
+        assert artifact_file.exists(), "artifact_path file must exist after promotion"
+        written = artifact_file.read_text(encoding="utf-8")
+        assert written == content, "File content must match the promoted content"
+
+    def test_rollback_restores_artifact_to_disk(self, tmp_path):
+        """rollback_update must restore prior content to artifact_path."""
+        artifact_file = tmp_path / "prompt.txt"
+        v1_content = "# Prompt v1.0.0\nOriginal."
+        v2_content = "# Prompt v1.1.0\nBuggy version."
+
+        v1 = UpdateRelease(
+            update_id="upd-rb-v1",
+            component_name="prompt_component",
+            component_type=ComponentType.prompt,
+            semantic_version="1.0.0",
+            content_hash=compute_hash(v1_content),
+            changelog="Initial.",
+            evidence_refs=[],
+            proposer="aria",
+            status=UpdateStatus.superseded,
+            content=v1_content,
+            artifact_path=str(artifact_file),
+        )
+        v2 = UpdateRelease(
+            update_id="upd-rb-v2",
+            component_name="prompt_component",
+            component_type=ComponentType.prompt,
+            semantic_version="1.1.0",
+            previous_version="1.0.0",
+            content_hash=compute_hash(v2_content),
+            changelog="Buggy version.",
+            evidence_refs=[],
+            proposer="aria",
+            status=UpdateStatus.active,
+            content=v2_content,
+            artifact_path=str(artifact_file),
+        )
+
+        # Start with v2 on disk
+        artifact_file.write_text(v2_content, encoding="utf-8")
+
+        store = InMemoryUpdateStore()
+        store.save(v1)
+        store.save(v2)
+        mgr = UpdateManager(store=store)
+
+        mgr.rollback_update("prompt_component", "1.0.0")
+
+        # v1 content must be back on disk
+        on_disk = artifact_file.read_text(encoding="utf-8")
+        assert on_disk == v1_content, (
+            f"Rollback must restore v1 content. Got: {on_disk!r}"
+        )

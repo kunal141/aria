@@ -112,6 +112,7 @@ class UpdateRelease(BaseModel):
     status:             UpdateStatus = UpdateStatus.discovered
     content:            Optional[str] = None   # proposed artifact / config text
     previous_content:   Optional[str] = None   # prior version content (for rollback)
+    artifact_path:      Optional[str] = None   # filesystem path where content is deployed
     rejection_reason:   Optional[str] = None
     canary_plan:        Optional[str] = None   # human-readable canary description
 
