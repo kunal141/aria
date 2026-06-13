@@ -1,0 +1,94 @@
+"""
+AI Work Ledger v2 — Week 29 Priority 1
+
+The Work Ledger v2 is the source of truth for ROI, dataset export, model
+lifecycle, future subagent traces, and the Human-like Work Intelligence
+Layer (see CLAUDE.md § 28). It is a discriminated-typed, idempotent,
+concurrency-safe JSONL ledger with explicit redaction at the metadata
+boundary.
+
+Public surface
+--------------
+- ``LedgerEvent``           — discriminated union of all 15 event types
+- ``LedgerEventType``       — enum tag for each event type
+- ``LedgerWriter``          — concurrency-safe append + event_id idempotency
+- ``LedgerReader``          — unified reader (v2 + legacy task + legacy evolution)
+- ``LedgerMetrics``         — ROI metric helpers with documented semantics
+- ``sanitize_metadata``     — redaction boundary for metadata dicts
+- Typed exceptions: ``MalformedLedgerRecord``, ``LedgerPersistenceError``,
+                    ``RedactionViolation``
+
+Legacy compatibility
+--------------------
+Existing ``work_ledger.jsonl`` and ``evolution_events.jsonl`` files are
+preserved byte-for-byte. The unified reader exposes them through the same
+typed surface tagged with their compatibility source.
+"""
+from aria.ledger.events import (
+    ActionTaken,
+    ActorType,
+    Approved,
+    ApprovalRequested,
+    ArtifactCreated,
+    CorrectionRecorded,
+    CostRecorded,
+    Failed,
+    LedgerEvent,
+    LedgerEventType,
+    LegacyEvolutionRecord,
+    LegacyTaskRecord,
+    ModelLifecycleEvent,
+    ModelUsed,
+    OutcomeRecorded,
+    Rejected,
+    Responded,
+    Routed,
+    SkillInvoked,
+    TaskCreated,
+)
+from aria.ledger.exceptions import (
+    LedgerPersistenceError,
+    MalformedLedgerRecord,
+    RedactionViolation,
+)
+from aria.ledger.metrics import LedgerMetrics
+from aria.ledger.privacy import REDACTED, sanitize_metadata
+from aria.ledger.reader import LedgerReader, LedgerSource
+from aria.ledger.writer import LedgerWriter, TerminalOutcomeConflict
+
+__all__ = [
+    # Events
+    "LedgerEvent",
+    "LedgerEventType",
+    "ActorType",
+    "TaskCreated",
+    "Routed",
+    "SkillInvoked",
+    "ArtifactCreated",
+    "ApprovalRequested",
+    "Approved",
+    "Rejected",
+    "ActionTaken",
+    "Failed",
+    "Responded",
+    "OutcomeRecorded",
+    "CorrectionRecorded",
+    "ModelUsed",
+    "CostRecorded",
+    "ModelLifecycleEvent",
+    # Legacy adapters
+    "LegacyTaskRecord",
+    "LegacyEvolutionRecord",
+    # Core machinery
+    "LedgerWriter",
+    "LedgerReader",
+    "LedgerMetrics",
+    "LedgerSource",
+    "sanitize_metadata",
+    "REDACTED",
+    # Exceptions
+    "MalformedLedgerRecord",
+    "LedgerPersistenceError",
+    "RedactionViolation",
+    "TerminalOutcomeConflict",
+]

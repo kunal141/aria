@@ -1,0 +1,14 @@
+# Improve PR prompt for media-tech pipelines
+
+## Description
+Add CMS and recommendation pipeline context to PR review.
+
+## Evidence
+- work_ledger:task-001
+- eval:rubric_run-10
+
+## Expected Gain
+Reduce false-positive rate from 35% to 20%.
+
+## Evolution Type
+prompt

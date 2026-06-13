@@ -13,6 +13,7 @@ belongs to the output layer — not to the execution layer.
 import json as _json
 from typing import Optional
 
+from aria.ledger.exceptions import LedgerPersistenceError
 from aria.state import ARIAState
 from aria.work_ledger import log_task
 from aria.artifact_engine import render_artifact, render_artifact_with_citations
@@ -135,6 +136,16 @@ def respond(state: ARIAState) -> dict:
         platform_evidence=state.get("platform_evidence"),
     )
 
+    # Week 29 Priority 1 — emit the v2 mirror event alongside the legacy
+    # log_task write. Failures here MUST NOT break graph execution;
+    # the legacy writer is still the source of truth for V1 callers.
+    _emit_v2_responded(
+        task_id=state["task_id"],
+        task_type=task_type,
+        routing_reason=state.get("routing_reason", ""),
+        error=state.get("error"),
+    )
+
     token_budget_used = 0
     try:
         from aria.runtime.budget import budget_tracker
@@ -149,3 +160,74 @@ def respond(state: ARIAState) -> dict:
         "steps_completed":   state["steps_completed"] + ["respond"],
         "token_budget_used": token_budget_used,
     }
+
+
+def _emit_v2_responded(
+    *,
+    task_id: str,
+    task_type: str,
+    routing_reason: str,
+    error: Optional[str],
+) -> None:
+    """
+    Best-effort v2 ledger mirror of the legacy ``log_task`` call. Wrapped
+    in try/except so a ledger problem (disk full, permission error, etc.)
+    cannot fail the graph — the legacy writer remains source of truth
+    while v2 adoption rolls out.
+
+    Emits ONE event per task completion:
+      - ``Failed``   if state.error is set
+      - ``Responded`` otherwise
+
+    Idempotency: ``event_id`` is deterministic over ``(task_id,
+    event_type)`` so retrying respond() for the same task_id writes a
+    single ledger entry. Without this a graph-level retry would inflate
+    completion counts. If the same task transitions from Responded to
+    Failed (or vice versa) the writer's fingerprint-conflict guard
+    catches it as a logic bug.
+
+    The default singleton writer is configurable via
+    ``ARIA_LEDGER_V2_PATH`` (tests use ``tests/conftest.py``'s autouse
+    fixture; production uses ``apps/backend/work_ledger_v2.jsonl``).
+    """
+    try:
+        from aria.ledger import ActorType, Failed, Responded
+        from aria.ledger.events import make_envelope
+        from aria.ledger.writer import get_default_writer
+
+        writer = get_default_writer()
+        lifecycle = "failed" if error else "responded"
+        deterministic_event_id = f"respond:{lifecycle}:{task_id}"
+
+        envelope = make_envelope(
+            task_id=task_id,
+            actor="aria",
+            actor_type=ActorType.aria,
+            event_id=deterministic_event_id,
+            skill_name=task_type if task_type and task_type != "unknown" else None,
+            metadata={"routing_reason": routing_reason} if routing_reason else {},
+        )
+        # ``idempotent_on_collision=True`` makes the check-and-append
+        # atomic inside the writer lock. Concurrent retries for the
+        # same lifecycle event collapse to one durable line — the
+        # second caller sees the first's seen-set update and returns
+        # False rather than raising on a stale-timestamp fingerprint
+        # diff. The Responded-vs-Failed cross-type check still fires
+        # via ``TerminalOutcomeConflict`` so a task that legitimately
+        # flipped lifecycle is surfaced as a logic bug.
+        if error:
+            writer.append(
+                Failed(error=error, **envelope),
+                idempotent_on_collision=True,
+            )
+        else:
+            writer.append(
+                Responded(**envelope),
+                idempotent_on_collision=True,
+            )
+    except (ImportError, OSError, LedgerPersistenceError):
+        # Narrow except: ledger import failure or disk I/O failure
+        # cannot fail the graph. ValidationError / ValueError /
+        # TerminalOutcomeConflict from the ledger surface as actual
+        # bugs and propagate.
+        pass

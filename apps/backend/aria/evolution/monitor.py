@@ -173,12 +173,20 @@ class EvolutionMonitor:
         return signals
 
     def _signal_to_proposal(self, sig: MonitorSignal) -> Optional[EvolutionProposal]:
-        etype, risk = _SIGNAL_TO_EVOLUTION.get(sig.signal_type, (None, None))
-        if etype is None:
+        # ONE lookup decides whether to emit a proposal. The (task_type,
+        # signal_type) key gives both the registered target_component AND the
+        # evolution_type to record on the proposal — these MUST agree (the
+        # registered component is the target the pipeline will actually
+        # rewrite). If no mapping exists the monitor abstains; emitting a
+        # proposal the pipeline would reject is strictly worse than silence.
+        mapping = _TASK_TYPE_SIGNAL_TO_TARGET.get((sig.task_type, sig.signal_type))
+        if mapping is None:
             return None
+        target, etype = mapping
 
         # Use severity to modulate risk, but cap at type ceiling
-        ceiling = RISK_CEILING.get(etype.value, 0.75)
+        base_risk = _SIGNAL_BASE_RISK.get(sig.signal_type, 0.5)
+        ceiling = min(RISK_CEILING.get(etype.value, 0.75), base_risk)
         risk_score = round(min(sig.severity * ceiling, ceiling), 3)
 
         pid = _stable_id(sig.signal_type, sig.task_type, sig.source)
@@ -192,23 +200,37 @@ class EvolutionMonitor:
                 "Review evidence and propose a concrete improvement."
             ),
             evolution_type=etype,
+            target_component=target,
             status=ProposalStatus.draft,
             evidence=sig.evidence,
             risk_score=risk_score,
             expected_gain=(
                 f"Reduce {sig.signal_type} for '{sig.task_type}' tasks by improving "
-                f"{etype.value} layer"
+                f"{target} ({etype.value} layer)"
             ),
             proposed_at=utc_now(),
             proposed_by=self._proposed_by,
         )
 
 
-# Map signal type → (EvolutionType, base_risk)
-_SIGNAL_TO_EVOLUTION: dict[str, tuple[EvolutionType, float]] = {
-    "high_error_rate":   (EvolutionType.skill,    0.55),
-    "low_support_rate":  (EvolutionType.rag,      0.45),
-    "repeated_pattern":  (EvolutionType.workflow, 0.30),
+# Base risk score per signal type — used by _signal_to_proposal to modulate
+# the proposal's risk_score (then capped by the evolution_type ceiling).
+_SIGNAL_BASE_RISK: dict[str, float] = {
+    "high_error_rate":   0.55,
+    "low_support_rate":  0.45,
+    "repeated_pattern":  0.30,
+}
+
+# Single source of truth: (task_type, signal_type) → (target_component,
+# evolution_type). Both ends agree by construction — the registered
+# target_component IS the artifact the pipeline rewrites, and evolution_type
+# is the matching proposal taxonomy bucket. The monitor abstains (emits no
+# proposal) when no entry exists for an observed signal; emitting a proposal
+# the pipeline would reject is strictly worse than silence.
+_TASK_TYPE_SIGNAL_TO_TARGET: dict[tuple[str, str], tuple[str, EvolutionType]] = {
+    ("pr_review", "high_error_rate"):  ("pr_review_prompt", EvolutionType.prompt),
+    ("pr_review", "low_support_rate"): ("pr_review_prompt", EvolutionType.prompt),
+    ("pr_review", "repeated_pattern"): ("pr_review_prompt", EvolutionType.prompt),
 }
 
 

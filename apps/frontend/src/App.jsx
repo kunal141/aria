@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import ARIAMasterPlan from './ARIAMasterPlan';
 import ARIADashboard from './ARIADashboard';
 import ARIAVoice from './ARIAVoice';
+import ROIDashboard from './ROIDashboard';
 
 export default function App() {
   const [view, setView] = useState('dashboard');
@@ -11,6 +12,7 @@ export default function App() {
       {view === 'dashboard' && <ARIADashboard />}
       {view === 'plan'      && <ARIAMasterPlan />}
       {view === 'voice'     && <ARIAVoice />}
+      {view === 'roi'       && <ROIDashboard />}
 
       {/* View switcher — bottom right */}
       <div className="fixed bottom-5 right-5 flex gap-2 z-50 shadow-lg">
@@ -24,6 +26,17 @@ export default function App() {
           }`}
         >
           ⚡ Dashboard
+        </button>
+        <button
+          onClick={() => setView('roi')}
+          title="ROI Dashboard — Week 29 Priority 2"
+          className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border transition-all ${
+            view === 'roi'
+              ? 'bg-violet-600 border-violet-600 text-white shadow-md'
+              : 'bg-white border-gray-300 text-gray-600 hover:border-violet-400 hover:text-violet-600'
+          }`}
+        >
+          📊 ROI
         </button>
         <button
           onClick={() => setView('plan')}

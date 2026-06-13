@@ -284,6 +284,8 @@ Human Teaching Layer (feedback capture if rating given)
 | Research Agent | Web search, document synthesis | Ad hoc request | Week 13 |
 | Communication Agent | Email drafting, meeting summaries | Explicit request | Week 8 |
 
+**V2 evolution — Subagent Instruction Engine** (see `CLAUDE.md` § 28.1): the V1 sub-agents above are reached through fixed graph nodes. In V2 the main ARIA orchestrator will generate **typed Subagent Instruction Objects** (subagent_name, task_objective, parent_task_id, allowed/forbidden context, allowed/forbidden tools, expected_output_schema, risk_level, token/cost budget, deadline, approval requirement, evaluation_criteria, ledger correlation_id) and delegate dynamically. Subagents cannot self-expand permissions, cannot directly execute T4/T5 tools, and every prompt + output is recorded in the Work Ledger.
+
 ---
 
 ## Evolution Intelligence Timeline
@@ -313,3 +315,31 @@ By Week 30: **12+ weeks of calibrated AI ecosystem monitoring** — a corpus of 
 | Prompt engineering | DSPy + Instructor | Systematic optimization, structured outputs |
 | Memory patterns | MemGPT/Letta architecture | Memory paging, consolidation, prioritization |
 | Safety | Constitutional AI | Output safety checks on self-integration proposals |
+
+---
+
+## Harness Engineering — The Seven Layers
+
+ARIA is built as a **Harness Engineering platform**, not a prompt wrapper. The model is one component; the product is the system around the model. Every line of code in `apps/backend/aria/` belongs to exactly one of these seven layers (the canonical reference is `CLAUDE.md` § 26.1):
+
+1. **Runtime Harness** — LangGraph StateGraph, retries, timeouts, idempotency, loop detection, budget control.
+2. **Tool Execution Harness** — MCP tools, permission scoping, typed I/O, dry-run, audit logging, risk tiers.
+3. **Governance Harness** — Action Tiers 1–5, approval gates, privacy/PII redaction, evidence gates, constitutional checks.
+4. **Evaluation Harness** — golden examples + failure cases + rubrics + regression tests + LangSmith traces.
+5. **Memory Harness** — task / user / outcome / institutional memory (three-tier hot/warm/cold).
+6. **Evolution Harness** — monitor → propose → sandbox → evaluate → approve → canary → promote → rollback with immutable versioned artifacts as runtime authority.
+7. **Subagent / Workflow Harness** *(V2 — § 28.1 in CLAUDE.md)* — structured task briefs for specialist subagents.
+
+The seven layers are the framing for the AaS pitch and the Week 30 reveal: tenants can swap models; the harness is the moat.
+
+---
+
+## Future Architecture Vision (V2 / V3 — documentation only)
+
+The full vision for ARIA's V2/V3 evolution is documented in `CLAUDE.md` § 28. Summary:
+
+- **§ 28.1 Agent Instruction Engine** — typed Subagent Instruction Objects with allowed/forbidden context, allowed/forbidden tools, expected output schema, risk level, budget, deadline, approval requirement, evaluation criteria, and a `ledger_correlation_id`. Slots on top of Pillar 13 (Agent Factory) and Pillar 15 (Control Plane). Governed: subagents cannot self-expand permissions, cannot execute T4/T5 tools, every prompt+output logged.
+- **§ 28.2 Human-like Work Intelligence Layer** — ARIA decomposed into ten observable work behaviours (understand vague requests → ask clarifications → plan → delegate to subagents → use tools safely → remember → audience-adapt → produce artifacts → learn from feedback → propose governed self-improvements). Each behaviour already maps to a specific pillar or harness layer. "Human-like" describes *work capability*, never autonomy ceiling.
+- **§ 28.3 Harness Engineering Platform Positioning** — explicit positioning for LinkedIn, the manager demo, AaS pitch, and interviews. The seven harness layers are the canonical framing; model choice is a footnote.
+
+V1 (Weeks 3–30) implementation choices — especially Week 29 (see `CLAUDE.md` § 29) — must leave clean attach points for the V2 layers (e.g. Work Ledger v2's `correlation_id` and `actor` fields make the Subagent Instruction Engine a no-migration add).

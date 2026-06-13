@@ -580,6 +580,553 @@ canary deployment, and verified rollback. The marketplace is explicitly deferred
 
 ---
 
+## Week 28 Stabilization — Round 2 Fixes (Closed by Round 3)
+
+**Date**: 2026-06-09
+**Status**: Superseded — Round 2 left two P1 findings open; Round 3 closes them.
+
+**Round 2 findings addressed:**
+1. Duplicate Release Scan Prevention — pipeline idempotency guard with content-hash comparison.
+2. Teams Per-Update Action IDs — `aria_source` field + missing-ID guard.
+3. Governed Canary Promotion — already passing.
+4. Graph Uses Promoted Version — real approve→promote_canary flow, 3-tuple component_loader, component_version wired.
+5. Rollback Restores Old Version — already passing.
+6. **Path Confinement (INCOMPLETE in Round 2)** — `_write_artifact_atomic` gained `deployment_root kwarg OR DEPLOYMENT_ROOT global`, but `DEPLOYMENT_ROOT` remained `None`, so confinement was never active. Fixed in Round 3.
+7. **Persistence Fail-Closed (INCOMPLETE in Round 2)** — Artifact write reordered to after `store.save()`, but `promote_canary` still called `_supersede_active()` (saves one record) then `store.save(activated)` (saves a second record) as two independent operations. A failure between them left no active release. Fixed in Round 3.
+8. Voice Transcript Fix — stale closure fixed, 2 Vitest tests pass.
+9. Typed Work Ledger Events — ordering verified; rollback event test added.
+10. Documentation — BUILD_LOG and CLAUDE.md updated.
+
+---
+
+## Week 28 Stabilization — Round 3 Fixes (Closed by Round 4)
+
+**Date**: 2026-06-09
+**Status**: Round 3 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+
+**Round 3 findings addressed (all Codex re-audit findings from round 2):**
+
+1. **[P1] Path Confinement Active by Default** — `DEPLOYMENT_ROOT` changed from `None` to `Path(__file__).parent.parent.parent.parent / "deployments"` (resolves to `apps/backend/deployments/`). Any write without an explicit `deployment_root` will be confined to this directory by default. Added `configure_deployment_root(path)` helper for override at startup. Added `deployment_root: Optional[Path] = None` parameter to `UpdateManager.__init__` so tests can pass `tmp_path` for artifact-writing tests without modifying the module global.
+
+2. **[P1] Atomic Multi-Save (Transactional Promote + Rollback)** — Added `save_batch(updates: list[UpdateRelease])` to both `UpdateStore` Protocol and `InMemoryUpdateStore`. Single lock, single flush, all-or-nothing rollback on `OSError`. Renamed `_supersede_active()` to `_collect_superseded()` — it now returns a list of modified records without saving. `promote_canary` collects superseded + builds activated, then calls `save_batch(superseded + [activated])` — one atomic operation. `rollback_update` builds `[rolled_back, restored]` list then calls `save_batch(batch)` — one atomic operation. Neither operation can leave a component with no active release due to a partial failure.
+
+3. **[P2] Rollback Failure Event Test Renamed + Persistence-Error Test Added** — `test_rollback_emits_failure_event_with_rollback_outcome` renamed to `test_successful_rollback_emits_failure_typed_audit_event` with docstring clarifying this is the nominal path (rollbacks always emit a failure-typed event for audit purposes, not because of an error). New test `test_rollback_persistence_error_leaves_no_partial_state` verifies that when `save_batch` raises `PersistenceError`, the exception propagates and neither state transition is committed — store remains at pre-rollback state.
+
+4. **[P3] Documentation Accuracy** — CLAUDE.md status line updated: removed "path confinement active by default" claim from Round 2, updated test count to 705 (18 in stabilization suite), described Round 3 items accurately.
+
+---
+
+## Week 28 Stabilization — Round 4 Fixes (Closed by Round 5)
+
+**Date**: 2026-06-09
+**Status**: Round 4 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+
+**Round 4 findings addressed (all Codex re-audit findings from round 3):**
+
+1. **[P1] False-Active State on Artifact Failure** — Root cause: both `promote_canary` and `rollback_update` committed state via `save_batch` BEFORE writing the artifact. If the artifact write failed after `save_batch`, the release was marked `active` in the store but the artifact was absent or stale. Retry was impossible because `promote_canary` requires `canary` status. Fix: artifact write and `_verify_artifact` now happen BEFORE `save_batch` in both methods. If the write fails, the release stays in `canary` (promotion) or the state stays unchanged (rollback) — both are fully retriable. If `save_batch` fails after a successful write, the artifact is ahead of state by one write; the next retry idempotently re-writes the same content and retries `save_batch`. The registry (store) remains the authoritative source of truth throughout.
+
+2. **[P2] No Failure Ledger Event on Operational Failure** — `promote_canary` and `rollback_update` had no exception handler, so `PersistenceError` and other operational failures produced zero ledger events. Fix: added `except Exception as exc: _log("failure", ..., outcome="promotion_failed"/"rollback_failed", detail=str(exc)); raise` inside both methods. On success, only the nominal events are emitted (`promotion`, `activation` for promote; `failure` with `outcome="rollback"` for rollback). On any exception, a `failure` event with the failure outcome is emitted before re-raising.
+
+3. **[P2 test] Persistence Failure Emits Failure Event** — New test `test_promote_canary_persistence_failure_emits_failure_event`: mocks `save_batch` to raise `PersistenceError`, calls `promote_canary`, verifies (a) `failure` event with `outcome="promotion_failed"` is captured, (b) the release stays in `canary` status (no false-active state).
+
+4. **[P3] Checklist Counts Updated** — `WEEK28_STABILIZATION_ACCEPTANCE_CHECKLIST.md` updated: "exactly 16 tests" → "at least 19 tests", "at least 703 tests" → "at least 706 tests".
+
+---
+
+## Week 28 Stabilization — Round 5 Fixes (Awaiting Codex Re-Audit)
+
+**Date**: 2026-06-10
+**Status**: Round 5 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+
+**Round 5 findings addressed (all Codex re-audit findings from round 4):**
+
+1. **[P1] Artifact Restored on save_batch Failure** — Root cause: artifact was written to disk before `save_batch`, but if `save_batch` failed, the old artifact content was not restored — only the store was rolled back (atomically by `save_batch`). This left the filesystem inconsistent with the store. Fix: added `_backup_artifact(path_str)` helper (reads previous content; returns None if file absent) and `_restore_artifact(path_str, prev_content, deployment_root)` helper (re-writes previous content, or `unlink` if file was absent before; best-effort, never raises). In both `promote_canary` and `rollback_update`, the artifact is backed up before writing. An inner `try/except` around artifact write + `save_batch` calls `_restore_artifact` if any exception occurs after the artifact was physically written. This ensures filesystem always matches store state after any failure.
+
+2. **[P2] Failure Event Wraps Entire Governed Operation** — Root cause: in `promote_canary`, the outer `except Exception` (failure event handler) was an INNER try block that only started after hash/health validation. Hash failures and health-check failures raised exceptions that bypassed the failure event handler entirely. Fix: restructured `promote_canary` to use three levels — `try/finally` (outer, releases activation lock), `try/except` (middle, logs failure event for ANY exception in the governed operation including hash/health), `try/except` (inner, restores artifact on save_batch failure). Same pattern applied to `rollback_update`: the entire body from content/hash/health checks through artifact write and save_batch is now wrapped in the failure-event handler.
+
+3. **New tests added** — `test_promote_canary_hash_failure_emits_failure_event`: verifies `HashMismatchError` from corrupted hash emits `failure` event with `outcome="promotion_failed"`. `test_promote_canary_artifact_restored_on_save_batch_failure`: verifies that when `save_batch` raises `PersistenceError` after artifact write, the artifact is restored to old content and the store stays in `canary` state.
+
+---
+
+## Week 28 Stabilization — Round 12 Narrow Fixes (Awaiting Codex Re-Audit)
+
+**Date**: 2026-06-11
+**Status**: Round 11 component-identity work was NOT accepted by Codex —
+two P1 gaps surfaced (monitor produced zero proposals; pr_review_skill
+silently swallowed `ComponentArtifactError`). Round 12 closes those two
+gaps with no architecture redesign. Week 29 BLOCKED until Codex
+independently verifies. Do NOT mark complete prior to Codex acceptance.
+
+**Verified baseline (2026-06-11):**
+- `test_week28_stabilization.py`: 38 passed
+- Full backend suite: 726 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+- Path selector (`-k "deployment_path or outside_deployment_root or traversal"`
+  against `test_week28_stabilization.py`): 5 passed
+- `git diff --check`: exit 0
+
+**Round 12 findings addressed (Codex Round 11 re-audit):**
+
+1. **[P1] Monitor cannot create any proposal**
+   - Root cause: Round 11 left two incompatible mappings in
+     `aria/evolution/monitor.py`. `_SIGNAL_TO_EVOLUTION` produced only
+     `skill | rag | workflow`, and `_TASK_TYPE_TO_TARGET` only registered
+     `(pr_review, EvolutionType.prompt) → "pr_review_prompt"`. The product
+     of these two tables for any observed signal was always None, so
+     `_signal_to_proposal` returned None for every real signal — the
+     monitor detected gaps but queued zero updates.
+   - Fix:
+     - Removed `_SIGNAL_TO_EVOLUTION` and `_TASK_TYPE_TO_TARGET`.
+     - Added one mapping `_TASK_TYPE_SIGNAL_TO_TARGET: dict[(str, str),
+       (str, EvolutionType)]` keyed by `(task_type, signal_type)`
+       returning `(target_component, evolution_type)`. Both ends agree by
+       construction — the value's target_component IS what the pipeline
+       will rewrite; the value's evolution_type matches the taxonomy
+       bucket. Registered three entries for V1's pr_review_prompt
+       component (high_error_rate, low_support_rate, repeated_pattern),
+       all → `("pr_review_prompt", EvolutionType.prompt)`.
+     - Added separate `_SIGNAL_BASE_RISK: dict[str, float]` for per-signal
+       base risk modulation.
+     - `_signal_to_proposal` now does one lookup. Abstains only when no
+       entry exists; for V1's registered components, supported signals
+       always produce a proposal.
+   - Test: `test_monitor_scan_produces_proposal_and_pipeline_queues_update`
+     in `tests/test_week28_stabilization.py` asserts the full
+     monitor→pipeline path:
+     ```
+     work_ledger.jsonl with 4 pr_review errors + 1 success
+       → EvolutionMonitor.scan() → proposals_found == 1
+       → proposal.target_component == "pr_review_prompt"
+       → ProposalPipeline.run(proposal) → updates_queued == 1
+       → queued.component_name == "pr_review_prompt"
+       → queued.status == UpdateStatus.awaiting_approval
+     ```
+
+2. **[P1] Production consumer bypasses fail-closed artifact validation**
+   - Root cause: `apps/backend/aria/skills/pr_review_skill.py::run`
+     wrapped the `component_loader.load("pr_review_prompt", default=_SYSTEM)`
+     call in `try: ... except Exception: system_prompt = _SYSTEM`. A
+     `ComponentArtifactError` raised by the loader for a missing,
+     unreadable, outside-root, or hash-mismatched on-disk artifact was
+     silently swallowed; the skill ran on the hardcoded `_SYSTEM` prompt
+     and the graph completed normally — defeating the runtime
+     artifact-authority contract.
+   - Fix: removed the broad `try/except` from `pr_review_skill.run`.
+     `component_loader.load()` already handles the legitimate "no active
+     release" case via its `default` argument (returns
+     `(_SYSTEM, None, None)`); the only failures that now propagate are
+     genuine fail-closed signals. An invalid runtime artifact surfaces
+     through `aria_graph.invoke()` as `ComponentArtifactError`, failing
+     the task.
+   - Tests:
+     - `test_graph_fails_when_active_artifact_is_missing` — creates an
+       active release, deletes the on-disk versioned artifact, asserts
+       `pytest.raises(ComponentArtifactError)` around
+       `aria_graph.invoke(state)` for a pr_review task.
+     - `test_graph_fails_when_active_artifact_is_corrupted` — same setup
+       but writes tampered content over the artifact (hash no longer
+       matches), asserts the same fail-closed propagation.
+
+**No other architectural changes** — transaction architecture (single
+component lock, save_batch invariant, immutable versioned artifact),
+Round 10 boundary fixes (update_id validation, derived-path reconfinement,
+UnicodeError catching), and Round 11's component registry +
+`EvolutionProposal.target_component` field all unchanged. The two fixes
+above are surgical: 6 lines in `monitor.py`, 8 lines in `pr_review_skill.py`,
+3 new test functions.
+
+---
+
+## Week 28 Stabilization — Round 11 Component-Identity Gap (Closed by Round 12)
+
+**Date**: 2026-06-11
+**Status**: Round 10 boundary fixes were accepted by Codex. Round 11 closes
+the final end-to-end component-identity gap. Week 29 BLOCKED until Codex
+independently verifies. Do NOT mark complete prior to Codex acceptance.
+
+**Verified baseline (2026-06-11):**
+- `test_week28_stabilization.py`: 35 passed
+- Full backend suite: 723 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+- Path selector (`-k "deployment_path or outside_deployment_root or traversal"`
+  against `test_week28_stabilization.py`): 5 passed
+- `git diff --check`: exit 0
+
+**Round 11 changes — end-to-end component identity, no transaction-architecture changes:**
+
+1. **Evolvable-component registry — new module**
+   - File: `apps/backend/aria/evolution/component_registry.py`
+   - `@dataclass(frozen=True) ComponentRegistration` with five fields:
+     `name`, `component_type`, `artifact_subdir`, `artifact_extension`,
+     `production_consumer`.
+   - `_REGISTRY: dict[str, ComponentRegistration]` lists the V1 evolvable
+     component:
+     ```
+     "pr_review_prompt" → (prompt, "prompts", ".txt", "aria.skills.pr_review_skill")
+     ```
+   - Helpers: `get_registration(name)`, `is_evolvable(name)`,
+     `list_evolvable_components()`, `artifact_path_for(name, deployment_root)`.
+   - `UnknownComponentError(ValueError)` raised for unknown targets.
+
+2. **`EvolutionProposal.target_component: str` (new validated field)**
+   - File: `apps/backend/aria/evolution/models.py`
+   - Field declared between `evolution_type` and `status`.
+   - `@field_validator("target_component")` calls
+     `component_registry.is_evolvable(v)` at construction; rejects with
+     `UnknownComponentError` if the target is not registered. A proposal
+     with an unknown target therefore cannot exist as a constructed model.
+
+3. **`ProposalPipeline` end-to-end uses `target_component`**
+   - File: `apps/backend/aria/evolution/pipeline.py`
+   - Removed: `_ETYPE_TO_COMPONENT` mapping, `_COMPONENT_LAYOUT` layout map,
+     `_default_artifact_path()` helper, and the dead `ImpactLevel`/`EvolutionType`
+     imports they used.
+   - Added: explicit `component_registry.get_registration(proposal.target_component)`
+     lookup inside `run()` BEFORE building the release (defence in depth on top
+     of the model validator). If the target is somehow unknown by the time the
+     pipeline runs, `run()` returns `PipelineResult(succeeded=False,
+     blocked_reason=...)` instead of silently producing a bogus release.
+   - `component_name = proposal.target_component` (was
+     `f"{proposal.evolution_type.value}_component"`).
+   - `component_type = registration.component_type` (was a table lookup off
+     `evolution_type`).
+   - `artifact_path = component_registry.artifact_path_for(target,
+     deployment_root)` using the LIVE `ops.DEPLOYMENT_ROOT` so test fixtures
+     that monkeypatch the root see the override.
+   - All ledger events updated: `component_name=proposal.target_component`
+     replaces every `f"{proposal.evolution_type.value}_component"` site.
+
+4. **All `EvolutionProposal` constructor sites updated**
+   - `aria/evolution/monitor.py`: new `_TASK_TYPE_TO_TARGET` mapping
+     `(task_type, evolution_type) → target_component`. `_signal_to_proposal`
+     looks up the target; if absent, the monitor **abstains** (returns
+     `None`) — silence is safer than emitting a proposal whose target the
+     pipeline would reject.
+   - `tests/test_evolution.py::_proposal()`: added `target_component`
+     kwarg defaulting to `"pr_review_prompt"`.
+   - `tests/test_week28_evolution.py::_make_proposal()`: added
+     `target_component` kwarg defaulting to `"pr_review_prompt"`.
+   - `tests/test_week28_stabilization.py::_make_proposal()`: added
+     `target_component="pr_review_prompt"` to the defaults dict.
+   - `tests/test_week28_stabilization.py::test_pipeline_assigns_confined_artifact_path_to_release`:
+     proposal constructor updated.
+
+5. **`test_graph_uses_promoted_component_version` fully rewritten**
+   - File: `apps/backend/tests/test_week28_stabilization.py`
+   - The manual `_make_release` shortcut is removed from this acceptance
+     test. Every state mutation now flows through the real production code
+     path:
+     ```
+     EvolutionProposal(target_component="pr_review_prompt")
+         → ProposalPipeline.run()           # produces awaiting_approval release
+         → UpdateManager.approve_update()   # awaiting_approval → canary
+         → UpdateManager.promote_canary()   # canary → active + writes versioned artifact
+         → Path(active.artifact_path).exists()
+         → compute_hash(read_text(...)) == release.content_hash
+         → aria_graph.invoke()              # reports promoted hash/version
+         → InMemoryUpdateStore(persist_path=...)  # fresh instance, same JSONL
+         → aria_graph.invoke()              # STILL reports promoted hash/version
+     ```
+   - Assertions cover all four properties listed in the user's brief:
+     (a) `release.component_name == "pr_review_prompt"`,
+     (b) versioned artifact_path exists on disk and bytes hash to
+         `release.content_hash`,
+     (c) graph reports promoted version + hash,
+     (d) a newly loaded store (fresh `InMemoryUpdateStore` reading the same
+         persist_path JSONL) still serves the promoted version/hash to the
+         graph — restart-survival via the persistence layer.
+
+**No other architectural changes** — the transaction architecture from
+Round 9 (single component-level lock, save_batch invariant, immutable
+versioned artifact as runtime authority) and the Round 10 boundary fixes
+(filename-safe update_id, derived-path reconfinement, UnicodeError catching)
+are unchanged.
+
+---
+
+## Week 28 Stabilization — Round 10 Narrow Fixes (Accepted by Codex)
+
+**Date**: 2026-06-11
+**Status**: Round 10 fixes submitted; Week 29 BLOCKED until Codex independently
+verifies the boundary fixes. Do NOT mark this round complete prior to Codex
+acceptance.
+
+**Verified baseline (2026-06-11):**
+- `test_week28_stabilization.py`: 35 passed
+- Full backend suite: 723 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+- Path selector (`-k "deployment_path or outside_deployment_root or traversal"` against `test_week28_stabilization.py`): 5 passed (3 original path-confinement + 2 new update_id traversal)
+- `git diff --check`: exit 0
+
+**Round 10 findings addressed (Codex Round 9 re-audit):**
+
+1. **[P1] update_id can escape deployment root**
+   - Root cause: `_versioned_artifact_path` confined the declared `artifact_path`
+     but appended `update_id` afterward; the derived path was checked with
+     `exists()` before any reconfinement. A hostile `update_id="../escape"`
+     would activate an existing outside-root artifact.
+   - Fix (defence-in-depth):
+     - Added `_VALID_UPDATE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")` and
+       `_validate_update_id()` rejecting empty strings, non-filename-safe
+       characters, and any "`..`" segment.
+     - `_versioned_artifact_path()` calls `_validate_update_id(update_id)`
+       FIRST.
+     - Re-runs `_confined_path()` on the FINAL derived path (after the
+       `update_id + suffix` append) before returning. Even if a separator
+       slipped past step 1, the final path is guaranteed to resolve under
+       the deployment root before any `exists()`/read/write.
+   - Tests:
+     `test_update_id_with_traversal_segment_rejected_before_filesystem_touch`
+     and `test_promote_canary_rejects_traversal_update_id_before_artifact_touch`
+     prove both layers.
+
+2. **[P1] Production pipeline bypasses artifact authority**
+   - Root cause: `ProposalPipeline.run()` constructed `UpdateRelease` with no
+     `artifact_path`, so in production `promote_canary` skipped the artifact
+     write path entirely and `component_loader.load()` returned in-memory
+     `content`, defeating the entire artifact-is-runtime-authority contract.
+   - Fix: introduced a small **component registry** in
+     `apps/backend/aria/evolution/pipeline.py` — `_COMPONENT_LAYOUT` maps
+     each `ComponentType` to a `(subdirectory, extension)` pair under the
+     module-level `DEPLOYMENT_ROOT`. `_default_artifact_path(component_name,
+     component_type)` builds the deterministic deployment path; the helper
+     reads the **live** `operations.DEPLOYMENT_ROOT` attribute (not a stale
+     import) so test fixtures that monkeypatch the root see the override.
+     `ProposalPipeline.run()` now sets `artifact_path=...` on every
+     `UpdateRelease` it creates.
+   - Test: `test_pipeline_assigns_confined_artifact_path_to_release` verifies
+     a real pipeline → release produces a release with a populated
+     `artifact_path` that resolves inside the configured deployment root.
+
+3. **[P2] Decode failures escape the loader contract**
+   - Root cause: `component_loader.load()` caught only `OSError` around the
+     `read_text(encoding="utf-8")` call. Binary corruption raised a raw
+     `UnicodeDecodeError` (subclass of `UnicodeError`, not `OSError`),
+     breaking the documented typed-exception contract.
+   - Fix: changed the except clause to `except (OSError, UnicodeError)` —
+     binary corruption now surfaces as `ComponentArtifactError`, identical
+     to missing/permission/hash-mismatch failures. Updated error message to
+     mention "corrupted" alongside "missing or unreadable".
+   - Test: `test_corrupted_binary_artifact_raises_typed_error_not_unicode_decode`
+     writes a non-UTF-8 byte sequence (`\xff\xfe\xfd\x00...`) to the
+     committed artifact and asserts the loader raises `ComponentArtifactError`,
+     never `UnicodeDecodeError`.
+
+4. **[Critique] Concurrency tests overstated their proof**
+   - Round 9's `promotion-vs-rollback` and `rollback-vs-rollback` tests
+     pre-acquired the lock, attempted BOTH operations under contention (both
+     failed), then ran BOTH operations after release (both succeeded). This
+     was 4 attempts × 2 successes × 2 failures — it tested the lock semantics
+     but did not assert "exactly one of two competing operations succeeds".
+   - Fix: each of the three concurrency tests now models **exactly two
+     attempts** — one contender (under lock-held, must raise
+     `ConcurrentActivationError`) and one winner (after release, must
+     succeed). Helper functions `_run_contender`, `_run_winner`, and
+     `_assert_two_attempts_one_succeeded_one_blocked` make the assertion
+     explicit: across the two attempts, exactly one succeeded and exactly
+     one raised `ConcurrentActivationError`. Each test then asserts on the
+     resulting single active release: artifact exists on disk, bytes match
+     `content_hash`, and `component_loader.load()` returns the winner's
+     content + hash + version.
+
+**Architectural design (unchanged from Round 9):**
+- Single component-level lock in the store; same lock for promotion and rollback.
+- Store invariant: at most one active release per component, enforced atomically
+  in `save_batch`.
+- Immutable versioned artifact path is the runtime authority; in-memory
+  `UpdateRelease.content` is proposal data, never silently substituted.
+- All transitions atomic via `save_batch`; staged artifacts cleaned up on any
+  pre-commit failure.
+
+---
+
+## Week 28 Stabilization — Round 9 Architectural Pass (Closed by Round 10)
+
+**Date**: 2026-06-10
+**Status**: Round 9 fixes submitted; Week 29 BLOCKED until Codex independently
+verifies the adversarial cases. Do NOT mark this round complete prior to
+Codex acceptance.
+
+**Verified baseline (2026-06-10):**
+- `test_week28_stabilization.py`: 31 passed
+- Full backend suite: 719 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+- Path selector (`-k "deployment_path or outside_deployment_root or traversal"` against `test_week28_stabilization.py`): 3 passed
+- `git diff --check`: exit 0
+
+**Round 9 changes — single source of truth + single concurrency boundary:**
+
+1. **One component-level lock, used by every lifecycle mutation**
+   - `InMemoryUpdateStore` now exposes a single concurrency primitive:
+     `acquire_component(component_name)` / `release_component(component_name)`.
+   - The update_id-keyed lock (`begin_activation`/`end_activation`) is
+     **removed** — it was incidental, not the right correctness boundary.
+   - Both `promote_canary` and `rollback_update` acquire the component lock
+     BEFORE reading active releases, rollback targets, or artifact state.
+     The initial `_require()` lookup in `promote_canary` only identifies the
+     component for lock acquisition; all governed reads (status, active set,
+     `_find_active`, `_collect_superseded`) happen UNDER the lock.
+   - Both release the lock in a `finally` block on every path.
+   - Result: promotion-vs-promotion, promotion-vs-rollback, and rollback-vs-
+     rollback on the same component serialize on the same lock. Different
+     components run in parallel.
+
+2. **Store invariant — at most one active release per component**
+   - `_check_active_invariant()` runs inside `save` and `save_batch` AFTER
+     applying records in-memory and BEFORE the disk flush.
+   - If any component would have > 1 active record in the resulting state,
+     the entire batch is restored to its prior durable values atomically
+     and `MultipleActiveReleasesError` is raised. No record from the batch
+     is visible in memory or on disk.
+   - This is the final defensive guarantee — even if a caller bypassed the
+     component lock, the store cannot install two simultaneously-active
+     releases for one component.
+
+3. **Immutable versioned artifact is the runtime authority**
+   - `component_loader.load()` now reads from the active release's
+     `artifact_path` and re-runs:
+     - **Path confinement** — `_confined_path(artifact_path)` against the
+       module-level `DEPLOYMENT_ROOT`. Outside-root → `ComponentArtifactError`.
+     - **File presence** — missing/unreadable → `ComponentArtifactError`.
+     - **Hash verification** — on-disk SHA-256 vs. `content_hash`. Mismatch
+       → `ComponentArtifactError`.
+   - All three failure modes are **fail-closed**. The in-memory
+     `UpdateRelease.content` field is NEVER silently substituted for an
+     invalid disk artifact.
+   - `UpdateRelease.content` is now documented as **proposal data** —
+     retained for diff display, rollback target verification, and tests
+     that operate in a content-only mode (no `artifact_path` set).
+   - When the active release has no `artifact_path`, `content` is the
+     runtime data (proposal-only mode; existing behavior preserved).
+
+4. **Rollback parity with promotion**
+   - Same component lock acquisition pattern.
+   - Same immutable versioned artifact path keyed by `target.update_id`
+     (never reused across updates).
+   - **Immutability protection**: if the versioned artifact already exists
+     on disk, its bytes are hash-verified before reuse. A mismatching
+     existing file raises `HashMismatchError` — the rollback NEVER
+     overwrites an immutable artifact with different bytes.
+   - Same atomic `save_batch` invariant check.
+
+5. **Deterministic adversarial test suite (9 new tests in
+   `test_week28_stabilization.py`)**
+   - `test_promotion_vs_promotion_same_component_lock_blocks_second`
+   - `test_promotion_vs_rollback_same_component_lock_blocks_second`
+   - `test_rollback_vs_rollback_same_component_lock_blocks_second`
+   - `test_store_rejects_two_active_releases_in_one_batch`
+   - `test_runtime_reads_committed_artifact_path`
+   - `test_missing_active_artifact_fails_closed`
+   - `test_corrupted_active_artifact_fails_closed`
+   - `test_persistence_failure_removes_uncommitted_artifact`
+   - `test_different_components_run_concurrently`
+   - Each concurrency test asserts: exactly one operation succeeds, the
+     other raises `ConcurrentActivationError`, exactly one active release
+     remains, the artifact exists on disk, its bytes match `content_hash`,
+     and `component_loader.load()` returns that exact version.
+   - All concurrency tests use **deterministic synchronization** —
+     pre-acquired component locks, NOT thread-timing races.
+
+6. **Existing test migration**
+   - `TestConcurrentActivationBlocked` tests updated to use
+     `acquire_component`/`release_component` (the lock API changed from
+     update_id-keyed to component_name-keyed).
+   - `test_rollback_target_hash_mismatch_blocked` test setup updated:
+     the prior version is now in `superseded` (not `active`) status —
+     the old setup violated the new at-most-one-active invariant.
+   - `test_rollback_restores_artifact_and_graph_version` now
+     monkeypatches `operations.DEPLOYMENT_ROOT` to `tmp_path` so the
+     loader's confinement check passes.
+
+7. **Documentation discipline**
+   - Path selector claim corrected — the checklist runs against
+     `test_week28_stabilization.py` only, returning **3 passed** (not 5;
+     the previous round's report incorrectly counted 2 unrelated path
+     tests from the evolution test file).
+   - This Round 9 entry is marked "Awaiting Codex Re-Audit" — Week 29 stays
+     blocked until Codex independently verifies the adversarial cases.
+
+---
+
+## Week 28 Stabilization — Round 8 Fixes (Closed by Round 9)
+
+**Date**: 2026-06-10
+**Status**: Round 8 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+
+**Verified baseline (2026-06-10):**
+- `test_week28_stabilization.py`: 22 passed
+- Full backend suite: 710 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+- Path selector (`-k "deployment_path or outside_deployment_root or traversal"`): 5 passed
+
+**Round 8 findings addressed (all Codex re-audit findings from round 7):**
+
+1. **[P1] Final replace occurs after durable activation** — Root cause: `save_batch()` committed the release as `active` with `artifact_path` pointing at `confined_final`, then `os.replace(staged_path, confined_final)` ran after. If the rename failed, the store said "active" but the old artifact was still on disk. Fix: **immutable versioned artifact paths** — instead of staging to `.next` and replacing, the new content is written directly to `confined_final.parent / (update_id + confined_final.suffix)` — a path unique per update, never reused. The activated/restored record's `artifact_path` is updated to point at this versioned path before `save_batch` is called. `save_batch` is the LAST operation. No `os.replace` needed after commit. The versioned file IS the live artifact. Applied to both `promote_canary` and `rollback_update`.
+
+2. **[P1] Concurrent updates can both become active** — Root cause: the activation lock was keyed only by `update_id`. Two different updates for the same component had different IDs, so both could acquire their locks simultaneously and both write `active` status, leaving two active releases in the store. Fix: **component-level activation lock** — `InMemoryUpdateStore` now maintains a second set `_activating_components: set[str]` alongside `_activating: set[str]`. `begin_activation(update_id, component_name)` atomically checks and acquires BOTH locks; returns `False` if either is already held. `end_activation` releases both. Both `promote_canary` and `rollback_update` pass `component_name=update.component_name` to the lock calls. New test `test_concurrent_different_updates_same_component_only_one_wins` added to `TestConcurrentActivationBlocked`.
+
+3. **[P3] Dead code removal** — `_ArtifactSnapshot`, `_snapshot_artifact()`, and `_restore_from_snapshot()` were introduced in Round 6 and superseded by the staging approach in Round 7. They remained as dead code. All three removed from `operations.py`.
+
+4. **[Fix] Missing Path import** — `test_week28_evolution.py` tests updated in Round 8 used `Path(active.artifact_path)` but `pathlib.Path` was not imported. Added `from pathlib import Path` to the test module.
+
+---
+
+## Week 28 Stabilization — Round 7 Fixes (Closed by Round 8)
+
+**Date**: 2026-06-10
+**Status**: Round 7 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+
+**Verified baseline (2026-06-10):**
+- `test_week28_stabilization.py`: 22 passed
+- Full backend suite: 709 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+
+**Round 7 findings addressed (all Codex re-audit findings from round 6):**
+
+1. **[P1] Outside-root artifact read before rejection** — Root cause: `_snapshot_artifact(update.artifact_path)` ran before `_write_artifact_atomic()`, so an outside-root path's bytes were read before `ValueError` was raised. Fix: path confinement check (`_confined_path`) is now the very first filesystem operation in the inner block. It computes `confined_final` before any read or write. If the path escapes the root, `ValueError` is raised immediately and no file is ever read.
+
+2. **[P1] Restoration failure leaves filesystem ahead of store** — Root cause: if `save_batch()` failed and `_restore_from_snapshot()` also failed, the newly written artifact remained on disk while the store stayed at `canary`. Fix: replaced snapshot/restore with a **staging path design**. New content is written to `confined_final.parent / (confined_final.name + ".next")` — a staging path in the same confined directory. The active artifact is never overwritten until `save_batch` succeeds. On any pre-commit failure, the staging file is deleted (best-effort) and the active artifact is untouched. No restoration step is needed; the inconsistency scenario is eliminated. After `save_batch` succeeds, `os.replace(staged_path, confined_final)` atomically promotes the staging file to the live path. Applied to both `promote_canary` and `rollback_update`.
+
+3. **[P3] Checklist section 6 filter** — `-k "deployment_path or traversal"` selected only 2 of 3 path-confinement tests (`test_absolute_outside_deployment_root_rejected` was not matched). Fixed: filter updated to `-k "deployment_path or outside_deployment_root or traversal"` — now selects all 3 tests.
+
+4. **[P3] Test module header** — Line 4 still said "Exactly 16 tests"; there are 22. Updated to "22 tests" with accurate item breakdown (16 core + 6 supplementary regression tests).
+
+---
+
+## Week 28 Stabilization — Round 6 Fixes (Closed by Round 7)
+
+**Date**: 2026-06-10
+**Status**: Round 6 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+
+**Verified baseline (2026-06-10):**
+- `test_week28_stabilization.py`: 22 passed
+- Full backend suite: 709 passed, 0 failures
+- `compileall apps/backend/aria`: exit 0
+- `ARIAVoice.test.jsx`: 2 passed
+- Frontend build: exit 0
+
+**Round 6 findings addressed (all Codex re-audit findings from round 5):**
+
+1. **[P1] Non-UTF-8 Artifact Deleted on save_batch Failure** — Root cause: `_backup_artifact` used `read_text(encoding="utf-8")` and returned `None` on BOTH conditions: file absent AND any decode/read failure. `_restore_artifact` interpreted `None` as "file was absent before write" and called `unlink()`. For non-UTF-8 binary files (e.g., UTF-16 content), this silently deleted the pre-existing file instead of restoring it. Fix: replaced `_backup_artifact`/`_restore_artifact` with a fail-closed `_ArtifactSnapshot` dataclass (frozen, fields: `path_str: str`, `existed: bool`, `data: Optional[bytes]`). `_snapshot_artifact(path_str)` reads raw bytes via `read_bytes()` (never `read_text`), raises immediately on any read failure (fail-closed — prevents the write from starting), returns `existed=True, data=<bytes>` for present files and `existed=False, data=None` for absent files. `_restore_from_snapshot` writes back `snapshot.data` as raw bytes via atomic tmp+replace, or calls `unlink(missing_ok=True)` if `existed=False`; raises on any failure (fail-closed, never swallows). Both `promote_canary` and `rollback_update` inner try blocks updated to use the new snapshot API.
+
+2. **[P1 test] Non-UTF-8 Artifact Preserved** — New test `test_promote_canary_nonutf8_artifact_restored_on_save_batch_failure`: writes UTF-16 LE binary content (`b"\xff\xfe" + "Legacy binary artifact".encode("utf-16-le")`) to a temp file, mocks `save_batch` to raise `PersistenceError`, calls `promote_canary` (which writes new content then triggers the failure), verifies that the original non-UTF-8 bytes are restored exactly (not deleted, not corrupted).
+
+3. **[P3] Checklist and documentation updated** — `WEEK28_STABILIZATION_ACCEPTANCE_CHECKLIST.md`: baseline updated to "at least 22 tests" / "at least 709 tests"; section 7 expected result updated from `3 passed` to `4 passed`; proof paths in sections 1, 3, 5, 6, 7 corrected from `aria/update_manager/` to `aria/evolution/update_manager/`. `CLAUDE.md` status line updated: 708 → 709 tests, 21 → 22 stabilization suite, Round 5 → Round 6 description.
+
+---
+
 ## REBUILD CHECKLIST
 
 To rebuild ARIA from scratch (learning exercise):

@@ -40,6 +40,7 @@ def _proposal(
     risk: float = 0.30,
     evidence: list[str] | None = None,
     status: ProposalStatus = ProposalStatus.draft,
+    target_component: str = "pr_review_prompt",
 ) -> EvolutionProposal:
     if evidence is None:
         evidence = [
@@ -51,6 +52,7 @@ def _proposal(
         title="Improve KPI RAG retrieval",
         description="Upgrade retrieval layer for KPI investigation skill.",
         evolution_type=etype,
+        target_component=target_component,
         status=status,
         evidence=evidence,
         risk_score=risk,

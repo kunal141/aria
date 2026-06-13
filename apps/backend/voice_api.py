@@ -5,17 +5,19 @@ Run with:
     uv run uvicorn voice_api:app --reload --port 8001
 
 Endpoints:
-    POST /voice/run    — accept transcript, return spoken summary
-    GET  /health       — liveness check
+    POST /voice/run                  — accept transcript, return spoken summary
+    GET  /api/v1/ledger/metrics      — ROI Dashboard metrics (Week 29 Priority 2)
+    GET  /health                     — liveness check
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from aria.ledger.api import router as ledger_router
 from aria.voice.router import router as voice_router
 
 app = FastAPI(
-    title="ARIA Voice API",
-    description="Browser voice interface for ARIA — read-only skills only; governance gate preserved",
+    title="ARIA API",
+    description="Browser voice interface + ROI Dashboard backend — read-only skills only; governance gate preserved",
     version="1.0.0",
 )
 
@@ -28,8 +30,9 @@ app.add_middleware(
 )
 
 app.include_router(voice_router)
+app.include_router(ledger_router)
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "aria-voice-api"}
+    return {"status": "ok", "service": "aria-api"}

@@ -1,32 +1,108 @@
 """
 Update Manager Operations — Week 28
 
-All 9 operations for managing versioned self-improvement updates.
-Every mutating operation is idempotent: calling it twice with the same
-arguments either succeeds once and is a no-op on retry, or raises a
-descriptive error rather than silently corrupting state.
+All operations for managing versioned self-improvement updates.
 
-Approval invariants:
-  - Proposer may not approve their own update (self-approval is forbidden).
-  - Approval of an update not in awaiting_approval is blocked (stale approval).
-  - Authorized approvers list is optional; when set, only listed identities may approve.
+Concurrency model
+-----------------
+Every component lifecycle mutation (promote_canary, rollback_update) acquires
+the store's component-level lock BEFORE reading active releases, rollback
+targets, or artifact state, and releases it in a finally block. Operations on
+the same component serialize; operations on different components run in
+parallel.
+
+Source of truth
+---------------
+The runtime authority for a component is the immutable versioned artifact file
+on disk, written under ``deployments/<update_id><suffix>`` and named by the
+update_id (never reused). The active store record's ``artifact_path`` and
+``content_hash`` are committed AFTER the artifact has been written and hash-
+verified. Consumers (see ``aria.evolution.component_loader.load``) MUST read
+the artifact from disk and re-verify its hash; ``UpdateRelease.content`` is
+proposal data and is never silently substituted for an invalid artifact.
 
 Activation invariants:
-  - Hash must match before activation proceeds.
-  - Constitutional rules must pass before activation proceeds.
-  - Concurrent activation of the same update_id is blocked.
+  - Hash verified before activation proceeds.
+  - Constitutional rules pass before activation proceeds.
+  - Concurrent operations on the same component are blocked (component lock).
+  - save_batch enforces at-most-one-active-release per component atomically.
 
 Rollback invariants:
-  - Rollback verifies hash of restored content before reporting success.
-  - Health checks must pass on the restore target before reporting success.
+  - Same component lock as promotion.
+  - Restore-target hash verified before any disk write.
+  - Same versioned-artifact design; existing target artifact is reused only
+    after hash verification — never silently overwritten with different bytes.
   - Status-only rollback (no content verification) is never reported as success.
 """
 from __future__ import annotations
 
 import difflib
 import os
+import re
 from pathlib import Path
 from typing import Optional
+
+
+# Update IDs must be filename-safe: ASCII alphanumerics, dot, dash, underscore
+# ONLY. No path separators, no parent-traversal segments, no quote/control
+# characters. Validated before being concatenated into a versioned artifact
+# path so a hostile or malformed update_id cannot escape the deployment root.
+_VALID_UPDATE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _validate_update_id(update_id: str) -> None:
+    """Reject update IDs that are not filename-safe or contain traversal segments."""
+    if not update_id or not _VALID_UPDATE_ID_RE.match(update_id):
+        raise ValueError(
+            f"update_id {update_id!r} is not filename-safe; only "
+            "[A-Za-z0-9._-]+ is permitted."
+        )
+    if ".." in update_id.split("."):
+        # Defense against "..", "...", "..foo" tokens slipping through.
+        raise ValueError(
+            f"update_id {update_id!r} contains a parent-traversal segment."
+        )
+
+# Deployment root for path confinement. Active by default: artifact writes must
+# land beneath apps/backend/deployments/ relative to this package. Production
+# callers may override via configure_deployment_root() or by assigning directly.
+DEPLOYMENT_ROOT: Optional[Path] = Path(__file__).parent.parent.parent.parent / "deployments"
+
+
+def configure_deployment_root(path: Optional[Path]) -> None:
+    """Override the module-level deployment root at process startup or in tests."""
+    global DEPLOYMENT_ROOT
+    DEPLOYMENT_ROOT = path
+
+
+def _confined_path(path_str: str, root: Optional[Path] = None) -> Path:
+    """
+    Resolve ``path_str`` and verify it is strictly beneath ``root``.
+
+    Uses ``Path.resolve()`` + ``Path.relative_to()`` so ``..`` traversal,
+    Windows/Unix mixed separators, and symlinks that escape the root are all
+    caught before any filesystem operation.
+
+    Raises
+    ------
+    ValueError
+        When the resolved path is not under the effective root.
+    """
+    effective_root = root if root is not None else DEPLOYMENT_ROOT
+    if effective_root is None:
+        return Path(path_str)  # no confinement configured
+
+    resolved = Path(path_str).resolve()
+    root_resolved = effective_root.resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        raise ValueError(
+            f"Deployment path {path_str!r} resolves to {resolved}, "
+            f"which is outside deployment root {root_resolved}."
+        )
+    return resolved
+
 
 from aria.evolution.update_manager.constitutional import check_constitutional
 from aria.evolution.update_manager.health import run_health_checks
@@ -49,9 +125,36 @@ from aria.evolution.update_manager.models import (
 from aria.evolution.update_manager.store import InMemoryUpdateStore, UpdateStore
 
 
-def _write_artifact_atomic(path_str: str, content: str) -> None:
-    """Atomically write content to path via tmp + os.replace (crash-safe)."""
-    path = Path(path_str)
+def _log(event_type_str: str, **kwargs) -> None:
+    """Best-effort ledger event; never raises so it never blocks operations."""
+    try:
+        from aria.work_ledger import EvolutionEventType, EvolutionLedgerEvent, log_evolution_event
+        log_evolution_event(EvolutionLedgerEvent(
+            event_type=EvolutionEventType(event_type_str),
+            **kwargs,
+        ))
+    except Exception:
+        pass
+
+
+def _write_artifact_atomic(
+    path_str: str,
+    content: str,
+    deployment_root: Optional[Path] = None,
+) -> None:
+    """
+    Atomically write content to path via tmp + os.replace (crash-safe).
+
+    Path confinement is enforced whenever a root is known: the explicit
+    ``deployment_root`` kwarg takes precedence, then the module-level
+    ``DEPLOYMENT_ROOT`` global is used as a fallback.  Raises ``ValueError``
+    for out-of-root paths.
+    """
+    effective_root = deployment_root if deployment_root is not None else DEPLOYMENT_ROOT
+    if effective_root is not None:
+        path = _confined_path(path_str, root=effective_root)
+    else:
+        path = Path(path_str)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
@@ -74,6 +177,42 @@ def _verify_artifact(path_str: str, expected_hash: str) -> bool:
         return False
 
 
+def _versioned_artifact_path(
+    artifact_path_str: str,
+    update_id: str,
+    deployment_root: Optional[Path],
+    module_root: Optional[Path],
+) -> Path:
+    """
+    Resolve the immutable versioned path for ``update_id``: a sibling of the
+    declared artifact path, named ``<update_id><suffix>``.
+
+    Defence-in-depth against path escape:
+      1. ``update_id`` is validated to be filename-safe (alphanumeric, dot,
+         dash, underscore) and contain no parent-traversal segments.
+      2. The declared ``artifact_path_str`` is confined against the
+         deployment root.
+      3. The DERIVED versioned path (with ``update_id`` appended) is
+         RE-CONFINED — even if ``update_id`` somehow contained a traversal
+         segment that slipped past step 1, the final path is verified to
+         resolve strictly inside the deployment root before any
+         ``exists()``, read, or write touches the filesystem.
+    """
+    _validate_update_id(update_id)
+    effective_root = deployment_root if deployment_root is not None else module_root
+    confined_final = (
+        _confined_path(artifact_path_str, root=effective_root)
+        if effective_root is not None
+        else Path(artifact_path_str)
+    )
+    derived = confined_final.parent / (update_id + confined_final.suffix)
+    # Re-confine the FINAL derived path. Without this, an update_id that
+    # somehow embedded a separator could escape the root via the join.
+    if effective_root is not None:
+        return _confined_path(str(derived), root=effective_root)
+    return derived
+
+
 class UpdateManager:
     """
     Manages the full lifecycle of UpdateRelease records.
@@ -89,9 +228,13 @@ class UpdateManager:
         self,
         store: Optional[UpdateStore] = None,
         authorized_approvers: Optional[set[str]] = None,
+        deployment_root: Optional[Path] = None,
     ) -> None:
         self._store = store if store is not None else InMemoryUpdateStore()
         self._authorized_approvers = authorized_approvers
+        # None → resolved at write time from the module-level DEPLOYMENT_ROOT global.
+        # Pass an explicit path to confine writes to a different root (e.g. tmp_path in tests).
+        self._deployment_root = deployment_root
 
     # ── Read operations ────────────────────────────────────────────────────────
 
@@ -191,6 +334,24 @@ class UpdateManager:
             "canary_at": utc_now(),
         })
         self._store.save(updated)
+        _log(
+            "approval",
+            task_id=update_id,
+            update_id=update_id,
+            component_name=updated.component_name,
+            version=updated.semantic_version,
+            actor=approver,
+            outcome="approved_canary",
+        )
+        _log(
+            "canary",
+            task_id=update_id,
+            update_id=update_id,
+            component_name=updated.component_name,
+            version=updated.semantic_version,
+            actor=approver,
+            outcome="canary_started",
+        )
         return updated
 
     def reject_update(
@@ -208,6 +369,15 @@ class UpdateManager:
             "rejected_at":      utc_now(),
         })
         self._store.save(updated)
+        _log(
+            "failure",
+            task_id=update_id,
+            update_id=update_id,
+            component_name=updated.component_name,
+            version=updated.semantic_version,
+            outcome="rejected",
+            detail=reason,
+        )
         return updated
 
     def activate_canary(self, update_id: str, approver: str) -> UpdateRelease:
@@ -230,55 +400,153 @@ class UpdateManager:
         """
         canary → active after health checks pass.
 
+        Concurrency: acquires the component lock BEFORE reading active releases
+        or any artifact state. Concurrent operations on the same component —
+        whether two promotions, a promotion and a rollback, or two rollbacks —
+        serialize on this lock. Operations on different components run in
+        parallel.
+
         Also marks any previously-active version of the same component as
-        superseded. Concurrent promotion of the same update_id is blocked.
+        superseded — all transitions are committed atomically in a single
+        save_batch call, which the store rejects if it would result in more
+        than one active release per component.
 
         Raises:
-          UpdateStateError            — not in canary status
-          HashMismatchError           — content hash does not match
-          ConstitutionalViolationError — constitutional check fails
-          ConcurrentActivationError   — activation already in progress
-          ValueError                  — health checks failed
+          UpdateStateError              — not in canary status
+          HashMismatchError             — content hash does not match
+          ConstitutionalViolationError  — constitutional check fails
+          ConcurrentActivationError     — component lock already held
+          ValueError                    — health checks failed / path outside root
+          MultipleActiveReleasesError   — store invariant violated
         """
-        update = self._require(update_id)
-        if update.status != UpdateStatus.canary:
-            raise UpdateStateError(update_id, update.status, "promote_canary (requires canary)")
+        # Initial lookup just to identify the component_name. The lock — not
+        # this read — is the correctness boundary; all governed reads happen
+        # under the lock below.
+        update_initial = self._require(update_id)
+        component_name = update_initial.component_name
 
-        # Concurrency gate
-        if not self._store.begin_activation(update_id):
+        if not self._store.acquire_component(component_name):
             raise ConcurrentActivationError(update_id)
 
         try:
-            # Hash verification
-            if not update.verify_hash():
-                raise HashMismatchError(update_id)
+            # ── Middle try: emit a failure ledger event for any exception in
+            #    the governed block (hash, health, artifact, persistence).
+            try:
+                # Re-read state UNDER the lock. This is the canonical state.
+                update = self._require(update_id)
+                if update.status != UpdateStatus.canary:
+                    raise UpdateStateError(
+                        update_id, update.status, "promote_canary (requires canary)"
+                    )
 
-            # Health checks
-            health = run_health_checks(update)
-            if not health.passed:
-                raise ValueError(
-                    f"promote_canary blocked for {update_id!r}: "
-                    + "; ".join(health.findings)
-                )
-
-            # Write content to filesystem before committing to store
-            if update.artifact_path and update.content:
-                _write_artifact_atomic(update.artifact_path, update.content)
-                if not _verify_artifact(update.artifact_path, update.content_hash):
+                # Hash verification
+                if not update.verify_hash():
                     raise HashMismatchError(update_id)
 
-            # Supersede any existing active version for the same component
-            self._supersede_active(update.component_name, exclude_id=update_id)
+                # Health checks
+                health = run_health_checks(update)
+                if not health.passed:
+                    raise ValueError(
+                        f"promote_canary blocked for {update_id!r}: "
+                        + "; ".join(health.findings)
+                    )
 
-            activated = update.model_copy(update={
-                "status":    UpdateStatus.active,
-                "active_at": utc_now(),
-            })
-            self._store.save(activated)
-            return activated
+                _log(
+                    "verification",
+                    task_id=update_id,
+                    update_id=update_id,
+                    component_name=update.component_name,
+                    version=update.semantic_version,
+                    outcome="hash_ok_health_ok",
+                )
+
+                superseded = self._collect_superseded(component_name, exclude_id=update_id)
+                activated = update.model_copy(update={
+                    "status":    UpdateStatus.active,
+                    "active_at": utc_now(),
+                })
+
+                # Inner: write the immutable versioned artifact, hash-verify
+                # it, then commit the active store record with the versioned
+                # path. save_batch is the LAST operation. If anything fails
+                # before save_batch, the staged artifact is deleted; if
+                # save_batch fails, the staged artifact is also deleted and
+                # the in-memory store is restored.
+                staged_path: Optional[Path] = None
+                staged_was_pre_existing = False
+                try:
+                    if update.artifact_path and update.content is not None:
+                        versioned = _versioned_artifact_path(
+                            update.artifact_path,
+                            update_id,
+                            self._deployment_root,
+                            DEPLOYMENT_ROOT,
+                        )
+                        # Immutable: if the versioned file already exists, it
+                        # must already match content_hash. Never silently
+                        # overwrite an existing immutable artifact.
+                        if versioned.exists():
+                            if not _verify_artifact(str(versioned), update.content_hash):
+                                raise HashMismatchError(update_id)
+                            staged_was_pre_existing = True
+                            staged_path = None  # nothing to clean up; existing valid file
+                        else:
+                            _write_artifact_atomic(
+                                str(versioned), update.content,
+                                deployment_root=self._deployment_root,
+                            )
+                            staged_path = versioned
+                            if not _verify_artifact(str(versioned), update.content_hash):
+                                raise HashMismatchError(update_id)
+
+                        activated = activated.model_copy(
+                            update={"artifact_path": str(versioned)}
+                        )
+
+                    self._store.save_batch(superseded + [activated])
+                    # Commit succeeded — the staged file (or pre-existing
+                    # immutable file) is now the live artifact.
+                    staged_path = None
+                except Exception:
+                    if staged_path is not None and not staged_was_pre_existing:
+                        try:
+                            staged_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                    raise
+
+                _log(
+                    "promotion",
+                    task_id=update_id,
+                    update_id=update_id,
+                    component_name=activated.component_name,
+                    version=activated.semantic_version,
+                    outcome="promoted_to_active",
+                )
+                _log(
+                    "activation",
+                    task_id=update_id,
+                    update_id=update_id,
+                    component_name=activated.component_name,
+                    version=activated.semantic_version,
+                    outcome="active",
+                )
+                return activated
+
+            except Exception as exc:
+                _log(
+                    "failure",
+                    task_id=update_id,
+                    update_id=update_id,
+                    component_name=component_name,
+                    version=update_initial.semantic_version,
+                    outcome="promotion_failed",
+                    detail=str(exc),
+                )
+                raise
 
         finally:
-            self._store.end_activation(update_id)
+            self._store.release_component(component_name)
 
     def rollback_update(
         self,
@@ -288,70 +556,145 @@ class UpdateManager:
         """
         Restore a component to a specific prior version.
 
-        Steps:
-          1. Locate the target version update in the store.
-          2. Verify content hash of the restore target.
-          3. Run health checks on the restore target.
-          4. Mark the currently-active update as rolled_back.
-          5. Set target update to active.
+        Uses the SAME component lock as promote_canary, so promotion-vs-
+        rollback and rollback-vs-rollback for one component serialize. Uses
+        the SAME immutable versioned artifact design — the restore target's
+        artifact is written to a path keyed by ``target.update_id`` (never
+        reused across updates). If an existing artifact at that path already
+        matches the target's content_hash, it is reused without rewrite; if
+        it exists but mismatches, the operation fails closed.
 
-        Never reports success for status-only changes (step 2 and 3 must pass).
+        Never reports success for status-only changes — content presence,
+        hash verification, and health checks must all pass.
 
         Raises:
-          UpdateNotFoundError  — target version not found
-          HashMismatchError    — target content hash mismatch
-          ValueError           — health checks failed on restore target
+          UpdateNotFoundError           — target version not found
+          HashMismatchError             — content hash mismatch (in-memory or on-disk)
+          ConcurrentActivationError     — component lock already held
+          ValueError                    — content missing, health checks failed,
+                                          or path outside deployment root
+          MultipleActiveReleasesError   — store invariant violated
         """
-        # Find target
-        candidates = [
-            u for u in self._store.list_by_component(component_name)
-            if u.semantic_version == target_version
-        ]
-        if not candidates:
-            raise UpdateNotFoundError(f"{component_name}@{target_version}")
-        target = candidates[0]
+        if not self._store.acquire_component(component_name):
+            # No specific update_id to attribute the conflict to — surface the
+            # first canary/active record for that component if any, else use
+            # the requested target as the conflict identifier.
+            existing = [
+                u for u in self._store.list_by_component(component_name)
+                if u.status in (UpdateStatus.canary, UpdateStatus.active)
+            ]
+            attribution = existing[0].update_id if existing else f"{component_name}@{target_version}"
+            raise ConcurrentActivationError(attribution)
 
-        # Content must be present — a status-only rollback is never sufficient
-        if not target.content:
-            raise ValueError(
-                f"rollback blocked — restore target {component_name}@{target_version} "
-                "has no content to restore (status-only record)"
-            )
+        try:
+            # Find target UNDER the lock — canonical state.
+            candidates = [
+                u for u in self._store.list_by_component(component_name)
+                if u.semantic_version == target_version
+            ]
+            if not candidates:
+                raise UpdateNotFoundError(f"{component_name}@{target_version}")
+            target = candidates[0]
 
-        # Hash verification on restore target
-        if not target.verify_hash():
-            raise HashMismatchError(target.update_id)
+            try:
+                # Content must be present — status-only rollback is never sufficient.
+                if not target.content:
+                    raise ValueError(
+                        f"rollback blocked — restore target {component_name}@{target_version} "
+                        "has no content to restore (status-only record)"
+                    )
 
-        # Health checks on restore target
-        health = run_health_checks(target)
-        if not health.passed:
-            raise ValueError(
-                f"rollback blocked — health checks failed on restore target "
-                f"{component_name}@{target_version}: " + "; ".join(health.findings)
-            )
+                if not target.verify_hash():
+                    raise HashMismatchError(target.update_id)
 
-        # Restore artifact to filesystem before committing to store
-        if target.artifact_path and target.content:
-            _write_artifact_atomic(target.artifact_path, target.content)
-            if not _verify_artifact(target.artifact_path, target.content_hash):
-                raise HashMismatchError(target.update_id)
+                health = run_health_checks(target)
+                if not health.passed:
+                    raise ValueError(
+                        f"rollback blocked — health checks failed on restore target "
+                        f"{component_name}@{target_version}: " + "; ".join(health.findings)
+                    )
 
-        # Mark currently active as rolled_back
-        active = self._find_active(component_name)
-        if active is not None:
-            rolled = active.model_copy(update={
-                "status":       UpdateStatus.rolled_back,
-                "rolled_back_at": utc_now(),
-            })
-            self._store.save(rolled)
+                # Build all state transitions.
+                active = self._find_active(component_name)
+                batch: list[UpdateRelease] = []
+                if active is not None and active.update_id != target.update_id:
+                    batch.append(active.model_copy(update={
+                        "status":         UpdateStatus.rolled_back,
+                        "rolled_back_at": utc_now(),
+                    }))
+                restored = target.model_copy(update={
+                    "status":    UpdateStatus.active,
+                    "active_at": utc_now(),
+                })
+                batch.append(restored)
 
-        # Restore target to active
-        restored = target.model_copy(update={
-            "status":    UpdateStatus.active,
-            "active_at": utc_now(),
-        })
-        self._store.save(restored)
-        return restored
+                staged_path: Optional[Path] = None
+                staged_was_pre_existing = False
+                try:
+                    if target.artifact_path and target.content is not None:
+                        versioned = _versioned_artifact_path(
+                            target.artifact_path,
+                            target.update_id,
+                            self._deployment_root,
+                            DEPLOYMENT_ROOT,
+                        )
+                        if versioned.exists():
+                            # Immutable: reuse only if hash matches; never overwrite
+                            # an existing immutable artifact with different bytes.
+                            if not _verify_artifact(str(versioned), target.content_hash):
+                                raise HashMismatchError(target.update_id)
+                            staged_was_pre_existing = True
+                            staged_path = None
+                        else:
+                            _write_artifact_atomic(
+                                str(versioned), target.content,
+                                deployment_root=self._deployment_root,
+                            )
+                            staged_path = versioned
+                            if not _verify_artifact(str(versioned), target.content_hash):
+                                raise HashMismatchError(target.update_id)
+
+                        restored = restored.model_copy(
+                            update={"artifact_path": str(versioned)}
+                        )
+                        batch = [b for b in batch if b.update_id != restored.update_id]
+                        batch.append(restored)
+
+                    self._store.save_batch(batch)
+                    staged_path = None
+                except Exception:
+                    if staged_path is not None and not staged_was_pre_existing:
+                        try:
+                            staged_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                    raise
+
+                _log(
+                    "failure",
+                    task_id=target.update_id,
+                    update_id=target.update_id,
+                    component_name=component_name,
+                    version=target_version,
+                    outcome="rollback",
+                    detail=f"Restored {component_name} to v{target_version}",
+                )
+                return restored
+
+            except Exception as exc:
+                _log(
+                    "failure",
+                    task_id=target.update_id if 'target' in locals() else "",
+                    update_id=target.update_id if 'target' in locals() else "",
+                    component_name=component_name,
+                    version=target_version,
+                    outcome="rollback_failed",
+                    detail=str(exc),
+                )
+                raise
+
+        finally:
+            self._store.release_component(component_name)
 
     # ── Internals ──────────────────────────────────────────────────────────────
 
@@ -368,11 +711,14 @@ class UpdateManager:
         ]
         return actives[0] if actives else None
 
-    def _supersede_active(self, component_name: str, exclude_id: str) -> None:
+    def _collect_superseded(self, component_name: str, exclude_id: str) -> list[UpdateRelease]:
+        """Return updated copies of any currently-active releases that should be superseded.
+        Does NOT write to the store — callers include these in a save_batch call."""
+        result = []
         for u in self._store.list_by_component(component_name):
             if u.update_id != exclude_id and u.status == UpdateStatus.active:
-                superseded = u.model_copy(update={
-                    "status":       UpdateStatus.superseded,
+                result.append(u.model_copy(update={
+                    "status":        UpdateStatus.superseded,
                     "superseded_at": utc_now(),
-                })
-                self._store.save(superseded)
+                }))
+        return result

@@ -16,39 +16,31 @@ Design:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from aria.evolution.debate import DebateEngine
 from aria.evolution.models import (
     EvolutionProposal,
-    EvolutionType,
     ProposalStatus,
     utc_now,
 )
 from aria.evolution.sandbox import run_sandbox
 from aria.evolution.store import InMemoryProposalStore, ProposalStore
 from aria.evolution.update_manager.models import (
-    ComponentType,
-    ImpactLevel,
     UpdateRelease,
     UpdateStatus,
     compute_hash,
 )
 from aria.evolution.update_manager.store import InMemoryUpdateStore, UpdateStore
+from aria.work_ledger import EvolutionEventType, EvolutionLedgerEvent, log_evolution_event
 
 
-# Map EvolutionType → ComponentType
-_ETYPE_TO_COMPONENT: dict[EvolutionType, ComponentType] = {
-    EvolutionType.prompt:     ComponentType.prompt,
-    EvolutionType.skill:      ComponentType.skill,
-    EvolutionType.workflow:   ComponentType.skill,
-    EvolutionType.agent:      ComponentType.skill,
-    EvolutionType.memory:     ComponentType.knowledge_ingestion,
-    EvolutionType.tool:       ComponentType.skill,
-    EvolutionType.rag:        ComponentType.retrieval_config,
-    EvolutionType.routing:    ComponentType.routing_rule,
-    EvolutionType.evaluation: ComponentType.evaluation_rubric,
-}
+# Component identity is sourced from the evolvable-component registry
+# (``aria.evolution.component_registry``). The pipeline uses
+# ``EvolutionProposal.target_component`` to look up the registration and
+# build the release; ``evolution_type`` is retained as proposal metadata
+# but no longer drives component naming.
 
 
 @dataclass
@@ -103,6 +95,14 @@ class ProposalPipeline:
         Returns PipelineResult with update=None if blocked at debate or sandbox.
         """
         self._proposal_store.save(proposal)
+        log_evolution_event(EvolutionLedgerEvent(
+            event_type=EvolutionEventType.proposal,
+            task_id=proposal.proposal_id,
+            proposal_id=proposal.proposal_id,
+            component_name=proposal.target_component,
+            actor=proposal.proposed_by,
+            outcome="submitted",
+        ))
 
         # ── Step 1: Debate ─────────────────────────────────────────────────────
         debate_result = self._debate.debate(proposal)
@@ -112,9 +112,26 @@ class ProposalPipeline:
         })
         self._proposal_store.save(proposal)
 
+        log_evolution_event(EvolutionLedgerEvent(
+            event_type=EvolutionEventType.generation,
+            task_id=proposal.proposal_id,
+            proposal_id=proposal.proposal_id,
+            component_name=proposal.target_component,
+            outcome=debate_result.verdict.recommendation,
+            detail="; ".join(debate_result.verdict.pro_arguments[:2]),
+        ))
+
         if debate_result.verdict.recommendation != "approve":
             proposal = proposal.model_copy(update={"status": ProposalStatus.rejected})
             self._proposal_store.save(proposal)
+            log_evolution_event(EvolutionLedgerEvent(
+                event_type=EvolutionEventType.failure,
+                task_id=proposal.proposal_id,
+                proposal_id=proposal.proposal_id,
+                component_name=proposal.target_component,
+                outcome="debate_rejected",
+                detail="; ".join(debate_result.verdict.con_arguments[:2]),
+            ))
             return PipelineResult(
                 proposal=proposal,
                 update=None,
@@ -137,7 +154,24 @@ class ProposalPipeline:
         })
         self._proposal_store.save(proposal)
 
+        log_evolution_event(EvolutionLedgerEvent(
+            event_type=EvolutionEventType.sandbox,
+            task_id=proposal.proposal_id,
+            proposal_id=proposal.proposal_id,
+            component_name=proposal.target_component,
+            outcome="passed" if sandbox_result.passed else "failed",
+            detail="; ".join(sandbox_result.findings[:2]),
+        ))
+
         if not sandbox_result.passed:
+            log_evolution_event(EvolutionLedgerEvent(
+                event_type=EvolutionEventType.failure,
+                task_id=proposal.proposal_id,
+                proposal_id=proposal.proposal_id,
+                component_name=proposal.target_component,
+                outcome="sandbox_failed",
+                detail="; ".join(sandbox_result.findings[:2]),
+            ))
             return PipelineResult(
                 proposal=proposal,
                 update=None,
@@ -147,15 +181,64 @@ class ProposalPipeline:
             )
 
         # ── Step 3: Create UpdateRelease ───────────────────────────────────────
+        # Reject unknown / non-evolvable targets BEFORE building the release —
+        # defence in depth on top of the model validator. A proposal whose
+        # target_component is not registered cannot produce a deployable
+        # artifact; surface a clear failure rather than silently building a
+        # bogus release.
+        from aria.evolution import component_registry
+        from aria.evolution.update_manager import operations as _ops
+
+        try:
+            registration = component_registry.get_registration(proposal.target_component)
+        except component_registry.UnknownComponentError as exc:
+            return PipelineResult(
+                proposal=proposal,
+                update=None,
+                blocked_reason=(
+                    f"target_component {proposal.target_component!r} is not "
+                    f"in the evolvable component registry: {exc}"
+                ),
+            )
+
         content = _build_content(proposal)
         content_hash = compute_hash(content)
-        component_type = _ETYPE_TO_COMPONENT.get(
-            proposal.evolution_type, ComponentType.skill
+        component_type = registration.component_type
+
+        # Immutable update_id: encodes both proposal identity and version so
+        # rescanning the same proposal at the same version is always idempotent.
+        update_id = f"upd-{proposal.proposal_id[:16]}-v{current_version}"
+
+        # ── Idempotency: never overwrite an existing release ───────────────────
+        existing = self._update_store.get(update_id)
+        if existing is not None:
+            if existing.content_hash != content_hash:
+                # Same ID but different content means the caller reused the
+                # version string with changed content — require a version bump.
+                raise ValueError(
+                    f"Update {update_id!r} already exists with a different "
+                    "content hash. Bump the semantic version to create a new "
+                    "release rather than silently discarding the changed content."
+                )
+            # Same content hash → true duplicate scan; return existing unchanged.
+            return PipelineResult(proposal=proposal, update=existing)
+
+        component_name = proposal.target_component
+        # Every production release gets a confined deployment artifact_path
+        # so the runtime authority contract (component_loader reads from disk)
+        # is never bypassed. The actual artifact write happens in
+        # promote_canary at a versioned path keyed by update_id.
+        deployment_root = (
+            _ops.DEPLOYMENT_ROOT if _ops.DEPLOYMENT_ROOT is not None
+            else Path("deployments")
+        )
+        artifact_path = component_registry.artifact_path_for(
+            component_name, deployment_root
         )
 
         update = UpdateRelease(
-            update_id=f"upd-{proposal.proposal_id[:16]}",
-            component_name=f"{proposal.evolution_type.value}_component",
+            update_id=update_id,
+            component_name=component_name,
             component_type=component_type,
             semantic_version=current_version,
             previous_version=None,
@@ -168,6 +251,7 @@ class ProposalPipeline:
             status=UpdateStatus.awaiting_approval,
             content=content,
             previous_content=previous_content,
+            artifact_path=artifact_path,
             awaiting_approval_at=utc_now(),
             evaluated_at=utc_now(),
             canary_plan=(
@@ -177,6 +261,16 @@ class ProposalPipeline:
             ),
         )
         self._update_store.save(update)
+        log_evolution_event(EvolutionLedgerEvent(
+            event_type=EvolutionEventType.approval_request,
+            task_id=proposal.proposal_id,
+            proposal_id=proposal.proposal_id,
+            update_id=update.update_id,
+            component_name=update.component_name,
+            version=update.semantic_version,
+            actor=proposal.proposed_by,
+            outcome="awaiting_approval",
+        ))
 
         return PipelineResult(proposal=proposal, update=update)
 

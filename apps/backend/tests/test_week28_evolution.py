@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -90,11 +91,13 @@ def _make_proposal(
     evidence: Optional[list[str]] = None,
     expected_gain: str = "Reduce false-positive risk flags by 20%.",
     proposed_by: str = "aria",
+    target_component: str = "pr_review_prompt",
 ) -> EvolutionProposal:
     return EvolutionProposal(
         proposal_id=f"prop-{title[:8].replace(' ', '-').lower()}-{utc_now()[:10]}",
         title=title,
         evolution_type=etype,
+        target_component=target_component,
         description=description,
         evidence=evidence or ["work_ledger:task-001", "eval:rubric_run-42"],
         expected_gain=expected_gain,
@@ -480,13 +483,13 @@ class TestHashMismatchBlocksActivation:
         assert upd.verify_hash() is True
 
     def test_rollback_target_hash_mismatch_blocked(self):
-        from unittest.mock import patch
-
-        # Create a target update with good hash
+        # Target is in superseded state (the prior active version) and its
+        # content has been tampered with so the in-memory hash no longer
+        # matches content_hash. Rollback must refuse to restore it.
         target = _make_update(
             update_id="upd-target",
             version="1.0.0",
-            status=UpdateStatus.active,
+            status=UpdateStatus.superseded,
         )
         tampered_target = target.model_copy(update={
             "content": "tampered content after hash was set!"
@@ -512,24 +515,26 @@ class TestHashMismatchBlocksActivation:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestConcurrentActivationBlocked:
-    def test_begin_activation_returns_false_on_second_call(self):
+    def test_acquire_component_returns_false_on_second_call(self):
         store = InMemoryUpdateStore()
-        assert store.begin_activation("upd-concurrent") is True
-        assert store.begin_activation("upd-concurrent") is False
+        assert store.acquire_component("pr_review_prompt") is True
+        assert store.acquire_component("pr_review_prompt") is False
 
-    def test_end_activation_releases_lock(self):
+    def test_release_component_releases_lock(self):
         store = InMemoryUpdateStore()
-        store.begin_activation("upd-concurrent")
-        store.end_activation("upd-concurrent")
-        assert store.begin_activation("upd-concurrent") is True
+        store.acquire_component("pr_review_prompt")
+        store.release_component("pr_review_prompt")
+        assert store.acquire_component("pr_review_prompt") is True
 
     def test_concurrent_promotion_raises_for_second_caller(self):
         upd   = _make_update(status=UpdateStatus.canary)
         store = InMemoryUpdateStore()
         store.save(upd)
 
-        # Manually claim the activation lock before calling promote_canary
-        store.begin_activation(upd.update_id)
+        # Manually claim the component-level lock before calling promote_canary.
+        # This deterministically forces the second caller (the promote_canary
+        # invocation below) to encounter a held lock.
+        store.acquire_component(upd.component_name)
 
         mgr = UpdateManager(store=store)
         with pytest.raises(ConcurrentActivationError):
@@ -562,13 +567,64 @@ class TestConcurrentActivationBlocked:
         if len(results) == 1:
             assert results[0].status == UpdateStatus.active
 
+    def test_concurrent_different_updates_same_component_only_one_wins(self):
+        """
+        Two concurrent promotions for DIFFERENT update_ids of the same component
+        must result in exactly one active release.
+
+        Before Round 8, the activation lock was keyed only by update_id so two
+        different updates could both acquire their locks and both become active.
+        The component-level lock added in Round 8 serialises them.
+        """
+        component = "pr_review_prompt"
+        upd_a = _make_update(
+            update_id="upd-concurrent-a",
+            component=component,
+            version="1.1.0",
+            status=UpdateStatus.canary,
+        )
+        upd_b = _make_update(
+            update_id="upd-concurrent-b",
+            component=component,
+            version="1.2.0",
+            status=UpdateStatus.canary,
+        )
+        store = InMemoryUpdateStore()
+        store.save(upd_a)
+        store.save(upd_b)
+        mgr = UpdateManager(store=store)
+
+        results: list[UpdateRelease] = []
+        errors: list[Exception] = []
+
+        def try_promote(uid: str) -> None:
+            try:
+                results.append(mgr.promote_canary(uid))
+            except Exception as exc:
+                errors.append(exc)
+
+        t1 = threading.Thread(target=try_promote, args=("upd-concurrent-a",))
+        t2 = threading.Thread(target=try_promote, args=("upd-concurrent-b",))
+        t1.start(); t2.start()
+        t1.join();  t2.join()
+
+        # Exactly one promotion succeeded
+        active_in_store = [
+            u for u in store.list_all() if u.status == UpdateStatus.active
+        ]
+        assert len(active_in_store) == 1, (
+            f"Expected exactly 1 active release; got {len(active_in_store)}: "
+            f"{[u.update_id for u in active_in_store]}"
+        )
+        assert len(results) + len(errors) == 2
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Scenario 10 — Interrupted deployment is recoverable
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestInterruptedDeploymentRecoverable:
-    def test_end_activation_called_in_finally_on_error(self):
+    def test_component_lock_released_in_finally_on_error(self):
         from unittest.mock import patch
         from aria.evolution.update_manager.health import HealthCheckResult
 
@@ -582,9 +638,10 @@ class TestInterruptedDeploymentRecoverable:
             with pytest.raises(ValueError):
                 mgr.promote_canary(upd.update_id)
 
-        # After failed promotion, lock must be released — can be attempted again
-        assert store.begin_activation(upd.update_id) is True
-        store.end_activation(upd.update_id)
+        # After failed promotion, the component lock must be released —
+        # the next caller can acquire it cleanly.
+        assert store.acquire_component(upd.component_name) is True
+        store.release_component(upd.component_name)
 
     def test_reject_available_after_failed_promotion(self):
         from unittest.mock import patch
@@ -1203,7 +1260,7 @@ class TestCodexRound3Fixes:
     # ── P1: Teams evolution approval card carries update_id ───────────────────
 
     def test_evolution_card_action_data_includes_update_id(self):
-        """Approve/Reject actions must carry evolution_update_id."""
+        """Approve/Reject actions must carry evolution_update_id (searched recursively)."""
         from aria.integrations.teams_bot import _build_evolution_approval_card
 
         data = {
@@ -1214,9 +1271,27 @@ class TestCodexRound3Fixes:
             "updates_queued": ["upd-test-001"],
         }
         card = _build_evolution_approval_card(data, task_id="task-abc")
-        actions = card["actions"]
-        approve_action = next(a for a in actions if "Approve" in a.get("title", ""))
-        reject_action  = next(a for a in actions if "Reject" in a.get("title", ""))
+
+        # Per-update design: actions live inside body Containers; collect them all
+        all_submit: list[dict] = []
+
+        def _collect(items):
+            for item in items:
+                if item.get("type") == "ActionSet":
+                    all_submit.extend(
+                        a for a in item.get("actions", [])
+                        if a.get("type") == "Action.Submit"
+                    )
+                elif item.get("type") == "Container":
+                    _collect(item.get("items", []))
+
+        _collect(card.get("body", []))
+        for a in card.get("actions", []):
+            if a.get("type") == "Action.Submit":
+                all_submit.append(a)
+
+        approve_action = next(a for a in all_submit if "Approve" in a.get("title", ""))
+        reject_action  = next(a for a in all_submit if "Reject"  in a.get("title", ""))
         assert approve_action["data"].get("evolution_update_id") == "upd-test-001"
         assert reject_action["data"].get("evolution_update_id")  == "upd-test-001"
 
@@ -1338,13 +1413,15 @@ class TestCodexRound3Fixes:
         )
         store = InMemoryUpdateStore()
         store.save(upd)
-        mgr = UpdateManager(store=store)
+        mgr = UpdateManager(store=store, deployment_root=tmp_path)
 
         active = mgr.promote_canary(upd.update_id)
 
         assert active.status == UpdateStatus.active
-        assert artifact_file.exists(), "artifact_path file must exist after promotion"
-        written = artifact_file.read_text(encoding="utf-8")
+        # Versioned artifact design: promoted content lives at active.artifact_path,
+        # not necessarily at the original artifact_file path.
+        assert Path(active.artifact_path).exists(), "versioned artifact file must exist after promotion"
+        written = Path(active.artifact_path).read_text(encoding="utf-8")
         assert written == content, "File content must match the promoted content"
 
     def test_rollback_restores_artifact_to_disk(self, tmp_path):
@@ -1387,12 +1464,12 @@ class TestCodexRound3Fixes:
         store = InMemoryUpdateStore()
         store.save(v1)
         store.save(v2)
-        mgr = UpdateManager(store=store)
+        mgr = UpdateManager(store=store, deployment_root=tmp_path)
 
-        mgr.rollback_update("prompt_component", "1.0.0")
+        result = mgr.rollback_update("prompt_component", "1.0.0")
 
-        # v1 content must be back on disk
-        on_disk = artifact_file.read_text(encoding="utf-8")
+        # Versioned artifact design: v1 content lives at result.artifact_path.
+        on_disk = Path(result.artifact_path).read_text(encoding="utf-8")
         assert on_disk == v1_content, (
             f"Rollback must restore v1 content. Got: {on_disk!r}"
         )

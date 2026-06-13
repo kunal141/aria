@@ -4,11 +4,12 @@ Evolution Node — Week 28
 Handles task_type="evolution" requests in the ARIA graph.
 
 Supported intents (parsed from raw_input):
-  scan / capability gaps   → run EvolutionMonitor + pipeline on top proposals
-  pending / show proposals → list pending UpdateReleases
-  evaluate proposal <id>   → run pipeline on a specific EvolutionProposal
-  compare update <id>      → show version diff + changelog
-  rollback component <n>   → rollback component to previous version
+  scan / capability gaps        → run EvolutionMonitor + pipeline on top proposals
+  pending / show proposals      → list pending UpdateReleases
+  evaluate proposal <id>        → run pipeline on a specific EvolutionProposal
+  compare update <id>           → show version diff + changelog
+  promote canary <id>           → promote canary release to active
+  rollback component <n>        → rollback component to previous version
 
 All ARIA governance rules apply:
   - ARIA may only PROPOSE updates, not activate them autonomously.
@@ -19,8 +20,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
-from typing import Optional
 
 from aria.evolution.models import ProposalStatus
 from aria.evolution.monitor import EvolutionMonitor
@@ -31,16 +30,24 @@ from aria.evolution.update_manager.models import (
     utc_now,
 )
 from aria.evolution.update_manager.operations import UpdateManager
-from aria.evolution.update_manager.store import InMemoryUpdateStore
 from aria.evolution.store import InMemoryProposalStore
 
-# ── Module-level singletons ────────────────────────────────────────────────────
-# update_releases.jsonl lives next to work_ledger.jsonl in the backend root.
-_UPDATE_RELEASES_PATH = Path(__file__).parent.parent.parent / "update_releases.jsonl"
-
+# ── Module-level proposal store (not shared with component_loader) ────────────
 _proposal_store = InMemoryProposalStore()
-_update_store   = InMemoryUpdateStore(persist_path=_UPDATE_RELEASES_PATH)
-_update_manager = UpdateManager(store=_update_store)
+
+
+def _get_cl():
+    """Lazy import to avoid circular imports at module load time."""
+    import aria.evolution.component_loader as cl
+    return cl
+
+
+def _get_update_store():
+    return _get_cl().get_store()
+
+
+def _get_update_manager():
+    return UpdateManager(store=_get_update_store())
 
 
 def evolution_node(state: dict) -> dict:
@@ -51,8 +58,10 @@ def evolution_node(state: dict) -> dict:
     raw = (state.get("raw_input") or "").lower()
 
     try:
-        if _matches(raw, ["scan", "capability gap", "capability gap", "discover", "find gaps"]):
+        if _matches(raw, ["scan", "capability gap", "discover", "find gaps"]):
             result = _handle_scan(state)
+        elif _matches(raw, ["promote canary", "activate canary", "promote update"]):
+            result = _handle_promote_canary(raw)
         elif _matches(raw, ["pending", "show proposal", "list proposal", "self-improvement"]):
             result = _handle_list_pending()
         elif _matches(raw, ["evaluate proposal", "run evaluation", "evaluate prop"]):
@@ -84,13 +93,13 @@ def evolution_node(state: dict) -> dict:
 
 def _handle_scan(state: dict) -> dict:
     """Run monitor scan → pipeline first 3 approved proposals."""
-    ledger_path = state.get("ledger_path")   # optional override for tests
+    ledger_path = state.get("ledger_path")
     monitor = EvolutionMonitor(ledger_path=ledger_path)
     summary = monitor.scan()
 
     pipeline = ProposalPipeline(
         proposal_store=_proposal_store,
-        update_store=_update_store,
+        update_store=_get_update_store(),
         llm_enabled=False,
     )
 
@@ -122,7 +131,8 @@ def _handle_scan(state: dict) -> dict:
 
 
 def _handle_list_pending() -> dict:
-    pending = _update_manager.list_pending_updates()
+    mgr = _get_update_manager()
+    pending = mgr.list_pending_updates()
     items = [
         {
             "update_id":      u.update_id,
@@ -148,7 +158,6 @@ def _handle_list_pending() -> dict:
 
 
 def _handle_evaluate_proposal(raw: str, state: dict) -> dict:
-    # Try to extract proposal ID from raw input
     match = re.search(r"(prop[-_][a-zA-Z0-9_\-]+|[a-z0-9]{8,})", raw)
     proposal_id = match.group(1) if match else None
 
@@ -161,7 +170,7 @@ def _handle_evaluate_proposal(raw: str, state: dict) -> dict:
 
     pipeline = ProposalPipeline(
         proposal_store=_proposal_store,
-        update_store=_update_store,
+        update_store=_get_update_store(),
         llm_enabled=False,
     )
     result = pipeline.run(proposal)
@@ -190,7 +199,8 @@ def _handle_compare_update(raw: str) -> dict:
         return {"action": "compare_update", "error": "Could not extract update ID from input."}
 
     try:
-        comparison = _update_manager.compare_update(update_id)
+        mgr = _get_update_manager()
+        comparison = mgr.compare_update(update_id)
         return {
             "action":           "compare_update",
             "update_id":        update_id,
@@ -209,9 +219,42 @@ def _handle_compare_update(raw: str) -> dict:
         return {"action": "compare_update", "error": str(exc)}
 
 
+def _handle_promote_canary(raw: str) -> dict:
+    """Promote a canary release to active (requires prior T4 approval)."""
+    match = re.search(r"(upd[-_][a-zA-Z0-9_\-\.]+)", raw)
+    update_id = match.group(1) if match else None
+
+    if not update_id:
+        return {
+            "action": "promote_canary",
+            "error": (
+                "Could not extract update ID. "
+                "Use: 'promote canary upd-xxxx-v1.0.0'"
+            ),
+        }
+
+    try:
+        mgr = _get_update_manager()
+        promoted = mgr.promote_canary(update_id)
+        return {
+            "action":    "promote_canary",
+            "update_id": promoted.update_id,
+            "component": promoted.component_name,
+            "version":   promoted.semantic_version,
+            "status":    promoted.status.value,
+            "message":   (
+                f"Update {update_id!r} promoted from canary to active. "
+                f"Component '{promoted.component_name}' v{promoted.semantic_version} is now active."
+            ),
+        }
+    except (KeyError, ValueError, RuntimeError) as exc:
+        return {"action": "promote_canary", "error": str(exc)}
+
+
 def _handle_rollback(raw: str) -> dict:
-    # Expected: "rollback component <name> to <version>" or "rollback <name> <version>"
-    match = re.search(r"(?:rollback\s+(?:component\s+)?)([\w\-_]+)\s+(?:to\s+)?(\d+\.\d+\.\d+)", raw)
+    match = re.search(
+        r"(?:rollback\s+(?:component\s+)?)([\w\-_]+)\s+(?:to\s+)?(\d+\.\d+\.\d+)", raw
+    )
     if not match:
         return {
             "action": "rollback",
@@ -223,13 +266,14 @@ def _handle_rollback(raw: str) -> dict:
     version   = match.group(2)
 
     try:
-        restored = _update_manager.rollback_update(component, version)
+        mgr = _get_update_manager()
+        restored = mgr.rollback_update(component, version)
         return {
-            "action":    "rollback",
-            "component": component,
+            "action":      "rollback",
+            "component":   component,
             "restored_to": version,
-            "update_id": restored.update_id,
-            "message":   f"Component '{component}' successfully rolled back to version {version}.",
+            "update_id":   restored.update_id,
+            "message":     f"Component '{component}' successfully rolled back to version {version}.",
         }
     except (KeyError, ValueError) as exc:
         return {"action": "rollback", "error": str(exc)}
@@ -244,12 +288,16 @@ def _matches(text: str, keywords: list[str]) -> bool:
 # ── Expose the module-level stores for testing ─────────────────────────────────
 
 def get_update_manager() -> UpdateManager:
-    return _update_manager
+    return _get_update_manager()
 
 
 def get_update_store() -> InMemoryUpdateStore:
-    return _update_store
+    return _get_update_store()
 
 
 def get_proposal_store() -> InMemoryProposalStore:
     return _proposal_store
+
+
+# Avoid name errors from prior direct import
+from aria.evolution.update_manager.store import InMemoryUpdateStore  # noqa: E402

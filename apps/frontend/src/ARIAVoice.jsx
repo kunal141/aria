@@ -96,8 +96,9 @@ export default function ARIAVoice() {
   const [error,     setError]     = useState(null);
   const [supported, setSupported] = useState(true);
 
-  const recognitionRef = useRef(null);
-  const synthRef       = useRef(window.speechSynthesis);
+  const recognitionRef  = useRef(null);
+  const synthRef        = useRef(window.speechSynthesis);
+  const transcriptRef   = useRef('');
 
   // Check browser support once
   useEffect(() => {
@@ -164,10 +165,11 @@ export default function ARIAVoice() {
       const interim = Array.from(e.results)
         .map(r => r[0].transcript)
         .join('');
+      transcriptRef.current = interim;
       setTranscript(interim);
     };
     recognition.onend = () => {
-      const final = transcript || '';
+      const final = transcriptRef.current || '';
       if (final.trim()) {
         callVoiceApi(final.trim());
       } else {
@@ -179,6 +181,7 @@ export default function ARIAVoice() {
       setMicState(MIC_IDLE);
     };
 
+    transcriptRef.current = '';
     setTranscript('');
     recognition.start();
   }, [micState, transcript, callVoiceApi]);

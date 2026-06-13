@@ -141,22 +141,28 @@ class EvolutionProposal(BaseModel):
     """
     A capability upgrade proposal, with full lifecycle state.
 
-    evidence: list of human-readable reasons why this is needed
-              (e.g., "kpi_node had 0 supported claims in 8 of last 10 runs")
-    risk_score: 0.0–1.0; must not exceed RISK_CEILING for the evolution_type
-    proposed_by: who/what generated this proposal
-      "monitor:work_ledger" | "monitor:paper_scan" | "human:<name>"
+    target_component : logical name of the production component this proposal
+                       intends to rewrite (e.g. "pr_review_prompt"). Validated
+                       against the evolvable-component registry — proposals
+                       targeting unknown components are rejected at
+                       construction time so they never enter the pipeline.
+    evidence         : list of human-readable reasons why this is needed
+                       (e.g., "kpi_node had 0 supported claims in 8 of last 10 runs")
+    risk_score       : 0.0–1.0; must not exceed RISK_CEILING for the evolution_type
+    proposed_by      : who/what generated this proposal
+                       "monitor:work_ledger" | "monitor:paper_scan" | "human:<name>"
     """
-    proposal_id:    str
-    title:          str
-    description:    str
-    evolution_type: EvolutionType
-    status:         ProposalStatus = ProposalStatus.draft
-    evidence:       list[str]
-    risk_score:     float              # 0.0–1.0
-    expected_gain:  str                # human-readable improvement description
-    proposed_at:    str                # UTC ISO
-    proposed_by:    str
+    proposal_id:      str
+    title:            str
+    description:      str
+    evolution_type:   EvolutionType
+    target_component: str
+    status:           ProposalStatus = ProposalStatus.draft
+    evidence:         list[str]
+    risk_score:       float              # 0.0–1.0
+    expected_gain:    str                # human-readable improvement description
+    proposed_at:      str                # UTC ISO
+    proposed_by:      str
 
     # Filled as proposal progresses through lifecycle
     debate_verdict:  Optional[DebateVerdict]  = None
@@ -176,6 +182,19 @@ class EvolutionProposal(BaseModel):
     @classmethod
     def _parseable_utc(cls, v: str) -> str:
         datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return v
+
+    @field_validator("target_component")
+    @classmethod
+    def _registered_target(cls, v: str) -> str:
+        # Import inside the validator to avoid a circular import at module load.
+        from aria.evolution.component_registry import is_evolvable, UnknownComponentError
+        if not is_evolvable(v):
+            raise UnknownComponentError(
+                f"EvolutionProposal.target_component={v!r} is not in the "
+                "evolvable component registry. A proposal must target a "
+                "registered component before it can enter the pipeline."
+            )
         return v
 
     def exceeds_risk_ceiling(self) -> bool:

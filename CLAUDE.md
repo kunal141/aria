@@ -82,7 +82,7 @@ Not a chatbot. Not a copilot. Not a workflow tool.
 | Vite + React + Tailwind scaffolding | ✅ DONE — runs at localhost:5173 |
 | Weeks 3–25 backend (`apps/backend/`) | ✅ DONE — LangGraph, skills, RAG, code intel, memory, LangSmith, Teams bot, governance, eval harness, model router, QA/CI-CD/Jira skills, CrewAI crew, DSPy, Decision Intelligence, Agent Control Plane, SLM Classifier |
 
-**CURRENT STATE: Weeks 3–25 complete and all Codex findings closed (two rounds). 350 deterministic pytest tests passing. 7 real skills + analytics crew live. Codex round 2 fixes: Jira honest failure (no fabricated ticket), pre-execution budget guards in skill nodes, CancellationToken for cooperative cancellation + T3/T4 idem_key warning. Next: Week 26 — RAPTOR + GraphRAG + analytics depth.**
+**CURRENT STATE: Weeks 3–28 implementation complete; **Week 28 Stabilization Acceptance Pass ACCEPTED by Codex** (Round 12 closed). 726 deterministic pytest tests passing (38 in stabilization suite). Week 29 UNBLOCKED. Before Week 29 implementation begins, three architecture/product vision concepts have been added as documentation only (NOT yet implemented) — see Section 28: (1) Agent Instruction Engine / Subagent Prompting Layer, (2) Human-like Work Intelligence Layer, (3) Harness Engineering Platform Positioning. Week 29 implementation priority order (see Section 29 for full plan): AI Work Ledger v2 → ROI Dashboard → Dataset Export Prototype → Model Lifecycle Registry v1 → Fine-Tuning Prototype (prototype only, NOT production deployment). Week 29 implementation must keep the Section 28 future layers in mind so V2/V3 work slots cleanly on top.**
 
 ---
 
@@ -269,7 +269,7 @@ Pillar 24 was added after GPT analysis — model routing + SLMs + vLLM + fine-tu
 | 7 — Intelligence Depth | 21–24 | Runtime harness, Agent Factory, DSPy, Decision Intel | ARIA optimises herself |
 | 8 — Workforce | 25–26 | Agent Control Plane, SLMs, vLLM, analytics depth | ARIA manages her team |
 | 9 — Self-Evolution | 27–28 | Evolution Intelligence — propose + integrate | Self-evolution loop proven |
-| 10 — Work Ledger + ML | 29 | AI Work Ledger, fine-tuning, vLLM, model lifecycle | ROI proven + model trained |
+| 10 — Work Ledger + ML | 29 | AI Work Ledger v2 → ROI Dashboard → Dataset Export → Model Lifecycle Registry v1 → Fine-Tune Prototype (prototype only — see § 29) | ROI dashboard live + fine-tune pipeline proven end-to-end |
 | 11 — Launch | 30 | Demo, LinkedIn, surprise reveal, AaS blueprint, Yukti positioning, career assets | The world sees ARIA |
 
 ---
@@ -701,19 +701,21 @@ This section captures architectural principles derived from reviewing current AI
 
 ### 26.1 — ARIA is a Harness Engineering Project
 
-The model is the smallest part. The product is the harness:
+The model is the smallest part. The product is the harness around it. ARIA's harness is composed of seven distinct layers — every line of code in `apps/backend/aria/` belongs to one of them.
 
-| Layer | What it is |
-|---|---|
-| **Runtime** | LangGraph StateGraph — durable, resumable, auditable execution |
-| **Memory** | Three-tier (hot/warm/cold), 6 typed memory models, institutional + outcome records |
-| **Tools** | MCP-compatible, permission-scoped, idempotency-keyed, dry-run capable |
-| **Governance** | Action Tiers 1–5, approval gates, audit log, sandbox-before-production |
-| **Evaluation** | Eval-Lite from Week 6, LangSmith rubrics from Week 14, LLM-as-judge, regression baselines |
-| **Work Ledger** | Every task, artifact, approval, outcome — timestamped, queryable, ROI-provable |
-| **Model Routing** | Right model per task (SLM / frontier / self-hosted / fine-tuned) |
+| # | Harness Layer | What it is | Where it lives today |
+|---|---|---|---|
+| 1 | **Runtime Harness** | LangGraph StateGraph — durable, resumable, auditable execution. Retries, timeouts, idempotency, loop detection, budget control, failure handling. | `aria/graph.py`, `aria/state.py`, `aria/nodes/*` |
+| 2 | **Tool Execution Harness** | MCP-compatible tools with permission scoping, typed I/O validation, dry-run mode, idempotency keys, audit logging, risk tiers. | `aria/tools/*` (Week 21 onwards), `aria/skills/*` |
+| 3 | **Governance Harness** | Action Tiers 1–5, approval gates, privacy/PII redaction, evidence gates, constitutional checks, sandbox-before-production. | `aria/governance/*`, `aria/evolution/update_manager/constitutional.py` |
+| 4 | **Evaluation Harness** | Golden examples + failure cases + rubrics + regression tests + LangSmith traces. Eval-Lite from Week 6, full LangSmith from Week 14. | `aria/evals/*`, skill-level `_eval()` methods |
+| 5 | **Memory Harness** | Task / user / outcome / institutional memory. Three-tier hot/warm/cold, 6 typed Pydantic memory models. | `aria/memory/*`, `aria/work_ledger.py` |
+| 6 | **Evolution Harness** | Monitor → propose → sandbox → evaluate → approve → canary → promote → rollback. Governed self-improvement with immutable versioned artifacts as runtime authority. | `aria/evolution/*` (registry, pipeline, update_manager) |
+| 7 | **Subagent / Workflow Harness** *(future, see § 28.1)* | Structured task-brief generation for specialist subagents — typed instruction objects with allowed/forbidden context, allowed/forbidden tools, expected output schema, risk level, budget, deadline, approval requirement, evaluation criteria, ledger correlation ID. | V2 — designed to slot on top of Pillar 13 (Agent Factory) and Pillar 15 (Control Plane) |
 
-**Interview positioning**: "I'm not building a prompt-engineering project. I'm building the harness that makes LLM calls reliable, governed, and improvable at enterprise scale. Anyone can call an API. I'm building what makes it production-grade."
+The same seven layers also frame how Pillar 24 routes between models, how Pillar 16 (Work Ledger) records outcomes, and how Pillar 18 (Evolution) gates self-improvement. They are not separate "things" — they are the orthogonal axes along which every ARIA capability is built.
+
+**Interview positioning**: *"I'm not building a prompt-engineering project. I'm building the harness that makes LLM calls reliable, governed, and improvable at enterprise scale. Seven layers — runtime, tools, governance, evaluation, memory, evolution, and subagent workflow — wrap every model call. Anyone can call an API. I'm building what makes it production-grade."*
 
 ---
 
@@ -909,3 +911,208 @@ Notifications are governed skill outputs, not fire-and-forget alerts.
 
 **Why Harness Engineering is the career differentiator:**
 Prompt engineers are a commodity. Model trainers are specialists. But engineers who can design the full harness — runtime, memory, tools, governance, evals, model routing, UI layer, work ledger — are genuinely scarce. ARIA is a 30-week proof of exactly that capability.
+
+---
+
+## 28. FUTURE ARCHITECTURE VISION (V2 / V3 — DOCUMENTATION ONLY)
+
+This section captures three architectural directions that ARIA should evolve toward, recorded as **vision and roadmap only** — none of the items below are implemented in V1. They are documented now so that V1 design decisions (especially Week 29–30 work) leave clean attach points for these layers later.
+
+When Week 29+ implementation choices come up, prefer designs that make these future layers easier to add later. Do NOT pre-build them.
+
+---
+
+### 28.1 — Agent Instruction Engine / Subagent Prompting Layer (V2)
+
+**The vision**: ARIA should not only invoke fixed graph nodes. The main ARIA orchestrator should be able to **generate structured task briefs** for specialist subagents and workflows, then delegate to them under governance.
+
+For complex tasks, ARIA generates one or more **typed Subagent Instruction Objects**. Each instruction is a Pydantic model with these fields:
+
+| Field | Purpose |
+|---|---|
+| `subagent_name` | The specialist role (e.g. `pr_review_agent`, `recommendation_impact_agent`) |
+| `task_objective` | What this subagent must produce |
+| `parent_task_id` | Correlation ID linking back to the originating ARIA task |
+| `workflow_id` | The workflow this brief is one step of |
+| `allowed_context` | What memory / docs / artifacts the subagent may read |
+| `forbidden_context` | Explicit exclusions (e.g. PII, other teams' projects) |
+| `tools_allowed` | Subset of the tool catalog this subagent may call |
+| `tools_forbidden` | Tools it must NOT touch (high-risk or out-of-scope) |
+| `expected_output_schema` | Pydantic schema the subagent's output must validate against |
+| `risk_level` | Maps to Action Tier (T1–T5) for permission boundary |
+| `token_budget` / `cost_budget` | Hard ceilings enforced by the runtime harness |
+| `deadline` / `priority` | Scheduling hint for Control Plane |
+| `approval_requirement` | Whether outputs need human sign-off before merge |
+| `evaluation_criteria` | Rubric the orchestrator uses to grade the subagent's output |
+| `ledger_correlation_id` | ID under which all subagent events are logged in the Work Ledger |
+
+**Worked example** — for *"Review this PR and check if it impacts recommendation CTR"*, ARIA generates briefs for:
+1. **PR Review Agent** — code-level review, risk scoring (T3 draft, no execute)
+2. **Recommendation Impact Agent** — analyzes whether the diff touches ranking/retrieval signals (read-only)
+3. **QA / Test Agent** — generates test cases and identifies coverage gaps
+4. **Business Summary Agent** — translates technical findings to manager-readable language
+
+Each subagent returns a typed output. ARIA merges, verifies, evaluates against the per-subagent rubric, and produces the final artifact.
+
+**Governance rules (non-negotiable)**:
+- Subagents cannot self-expand permissions or tool access
+- Subagents cannot directly execute T4 / T5 (Execute / Autonomous) tools
+- Every subagent prompt AND output is logged in the Work Ledger under `ledger_correlation_id`
+- Subagent instruction templates are versioned (`SubagentBrief.template_version`) so DSPy-style optimization is possible
+- Subagent outputs are evaluated by the orchestrator BEFORE being merged into ARIA's final artifact
+- Any subagent output that proposes a risky action escalates to human approval
+
+**Where this slots in the existing architecture**:
+- Built on top of **Pillar 13** (Agent Factory) — the factory scaffolds the subagent
+- Run by **Pillar 15** (Agent Control Plane) — schedules, monitors, kills runaway subagents
+- Enforced by the **Governance Harness** (§ 26.1 layer 3) — permission scopes, approval gates
+- Evaluated by the **Evaluation Harness** (§ 26.1 layer 4) — per-subagent rubrics
+- Logged by the **Memory / Work Ledger** (§ 26.1 layer 5)
+
+**V1 alignment**: do NOT add a SubagentBrief model in Week 29. But when designing Work Ledger v2 schemas (Week 29 priority #1), include a `correlation_id` field on every event so that subagent traces can plug in later without a migration.
+
+---
+
+### 28.2 — Human-like Work Intelligence Layer (V2 framing)
+
+**The vision**: ARIA should feel **human-like in work capability** — inspired by the Chitti-from-Enthiran ambition but implemented as a governed enterprise AI employee, never as uncontrolled autonomy.
+
+"Human-like" decomposes into ten observable behaviours, each of which already maps to a specific pillar or harness layer:
+
+| # | Human-like behaviour | Where it lives |
+|---|---|---|
+| 1 | Understands vague business/engineering requests | Conversational Tasking (Pillar 1) |
+| 2 | Converts requests → structured goals, plans, workflows, subtasks | Task decomposition (Pillar 1) + Workflow Mining (Pillar 19) |
+| 3 | Asks clarifying questions when needed | Pillar 1 + Pillar 17 (Human Teaching) |
+| 4 | Prompts and manages specialist subagents | **§ 28.1 Subagent Instruction Engine** + Pillar 13 + Pillar 15 |
+| 5 | Uses tools and enterprise systems safely | Tool Execution Harness (§ 26.1 layer 2) + Action Tiers |
+| 6 | Remembers prior tasks, decisions, incidents, outcomes, preferences | Memory Harness (§ 26.1 layer 5) + Pillar 8 (Knowledge Vault) + Pillar 17 (Human Teaching) |
+| 7 | Communicates differently for dev / manager / leadership / QA / product | Audience-Aware Communication (§ 26.3) + Pillar 7 |
+| 8 | Takes ownership — produces artifacts, recommendations, next actions | Artifact Engine (Pillar 7) + Decision Intelligence (Pillar 20) |
+| 9 | Learns from feedback and corrections | Pillar 17 (Human Teaching) + Shadow Learning pipeline (§ 26.6) |
+| 10 | Proposes self-improvements through monitor → propose → sandbox → evaluate → approve → deploy → rollback | Evolution Harness (§ 26.1 layer 6) + Pillar 18 |
+
+**Critical guardrail — what "human-like" does NOT mean**:
+- Does NOT mean ARIA bypasses governance
+- Does NOT mean ARIA bypasses approval / permission / audit logging / evidence checks / rollback rules
+- Does NOT mean ARIA self-modifies production behavior without human sign-off
+- "Human-like" is a description of *work capability*, not autonomy ceiling
+
+**Positioning line (locked)**:
+> *"ARIA is designed to behave like a capable AI employee: understanding goals, planning work, delegating to subagents, using tools, remembering decisions, communicating by audience, learning from feedback, and improving safely under governance."*
+
+**V1 alignment**: V1 already implements behaviours 1, 2, 3, 5, 6, 8, 9, 10. Behaviour 4 (subagent management) is § 28.1's V2 work. Behaviour 7 (audience-aware) is in § 26.3 — partial in V1 via the respond node, full elaboration in V2.
+
+---
+
+### 28.3 — Harness Engineering Platform Positioning (canonical)
+
+**The vision**: ARIA is explicitly positioned as a **Harness Engineering platform**, not a prompt wrapper or a single-agent toy. This is the framing for LinkedIn, the manager demo, the AaS pitch, and every interview.
+
+The model is one component. The product is the system around the model — and that system is the seven harness layers in § 26.1 (which now explicitly includes Subagent / Workflow as layer 7).
+
+**Positioning line (locked)**:
+> *"ARIA is built using Harness Engineering: the model is only one component; the real intelligence comes from orchestration, memory, tools, governance, evaluation, workflows, subagents, and safe execution around the model."*
+
+**How this affects Week 29–30 decisions**:
+- ROI Dashboard copy must use harness language ("evaluation harness saved N hours of regression triage"), not generic AI marketing
+- LinkedIn launch post (Week 30) leads with "Harness Engineering" and the seven layers — model choice is a footnote
+- AaS blueprint (Week 30) sells the harness, not the model. Different tenants can swap models; the harness is the moat.
+
+**Cross-references**:
+- § 26.1 — the seven harness layers (now including Subagent / Workflow as layer 7)
+- § 22 — Platform vs Employee distinction (the platform IS the harness; ARIA is the first employee on it)
+- § 27 — career positioning (Harness Engineering is the differentiator)
+- § 17 (moat analysis) — six of the seven moat layers are harness investments
+
+---
+
+## 29. WEEK 29 PLAN — AI WORK LEDGER + FINE-TUNING PROTOTYPE
+
+**Status**: planning. Week 28 stabilization is accepted; Week 29 is unblocked.
+
+**Implementation order is fixed** by ROI-of-effort. Each item must reach the listed checkpoint before the next one starts — do NOT parallelize the first three.
+
+### Priority 1 — AI Work Ledger v2 *(must complete first)*
+
+Extend the existing `apps/backend/aria/work_ledger.py` JSONL log to a queryable, schema-versioned ledger that is the source of truth for the ROI Dashboard, the Dataset Export, and the eventual fine-tuning training set.
+
+Required schema additions (Pydantic-validated, versioned):
+- `ledger_event_version` — schema version field on every event (for forward-compat migrations)
+- `correlation_id` — top-level ID grouping all events for one logical task (parent task + all subagent events). **Add this even though subagents don't exist yet** — § 28.1 will plug in cleanly.
+- `actor` — `"aria" | "human:<name>" | "subagent:<role>"` (future-proof for § 28.1)
+- `risk_tier` — T1–T5 of the action recorded
+- `cost_tokens_in` / `cost_tokens_out` / `cost_usd` — per-event costs (needed for ROI math)
+- `evaluation_score` — optional rubric score when an event ran through the eval harness
+- `outcome_label` — `approved | rejected | rolled_back | superseded | active | failed | abstained`
+- `latency_ms` — wall-clock for the event
+
+Existing event types must be migrated to v2 with a one-time backfill of `ledger_event_version=1` for older records.
+
+**Checkpoint**: 100 % of `aria/work_ledger.py` writes go through the v2 schema; reading code (notifier, evolution, governance) updated; existing tests pass; new tests cover the schema migration and the `correlation_id` propagation.
+
+### Priority 2 — ROI Dashboard
+
+Frontend view (in `apps/frontend/src/`) that reads from the Work Ledger v2 and surfaces:
+- Tasks completed by skill / week
+- Approved vs rejected ratio
+- Human time saved (estimated from `outcome_label=approved` × baseline-effort table)
+- Cost spent (sum of `cost_usd`)
+- Failure rate and rollback rate
+- Evolution loop activity — proposals → canary → active → rolled_back
+
+Copy uses **Harness Engineering language** per § 28.3 — every metric tied to one of the seven harness layers.
+
+**Checkpoint**: dashboard renders from real Work Ledger v2 data; screenshot saved to `docs/demos/week_29_roi_dashboard.png`.
+
+### Priority 3 — Dataset Export Prototype
+
+`apps/backend/aria/ml/export_dataset.py` script that materializes training data from the Work Ledger:
+
+- **SFT set**: events where `outcome_label = approved`, exported as `(input, output)` JSONL
+- **DPO set**: pairs where a rejected output and a corrected output exist for the same task, exported as `(prompt, chosen, rejected)` JSONL
+- Deduplication by hash; quality filter (`evaluation_score >= threshold`); format validation
+- Synthetic data generation hook left as a TODO stub (§ 26.6 Step 3 — implemented later when real-example count < 50)
+
+**Checkpoint**: a `pr_review` SFT export and a (possibly empty) DPO export are produced from the Work Ledger v2. NO training is run yet.
+
+### Priority 4 — Model Lifecycle Registry v1
+
+Minimal MLOps registry (`apps/backend/aria/ml/registry.py`) tracking, for each candidate model:
+- Model name + base model version
+- Training dataset version (hash of the export from Priority 3)
+- LangSmith eval score on a fixed holdout
+- Deployment endpoint URL (filled when served, blank for prototypes)
+- Rollback pointer (the previous model version this would replace)
+- Active skills using the model
+
+Persisted as JSONL under `apps/backend/ml/registry.jsonl` for V1; matches the InMemoryUpdateStore pattern (file-backed, atomic flush, schema-validated).
+
+**Checkpoint**: registry can record at least one prototype entry; reading and writing tested; the structure makes the Week 29 fine-tune (Priority 5) registerable.
+
+### Priority 5 — Fine-Tuning Prototype *(prototype only — NO production deployment)*
+
+A single end-to-end LoRA training run on the Priority 3 export to **prove the pipeline**, not to ship a model.
+
+- Base model: Qwen2.5-Coder-7B-Instruct (Llama-3.1-8B-Instruct benchmark comparison is V2)
+- Library: Unsloth + TRL `SFTTrainer`
+- Hardware: RunPod A40, ~$0.80/run
+- Output: a `.gguf` or LoRA-adapter checkpoint, an LangSmith eval score on the holdout, and a registry entry from Priority 4
+- **EXPLICITLY NOT in scope**: vLLM serving, model router wire-up, production traffic, A/B test
+
+**Checkpoint**: registry shows one Week-29 prototype entry; eval score is recorded; nothing is deployed. The decision *"would this fine-tune outperform Claude on stable PR-review patterns?"* is answered by data, not by guesswork.
+
+### Out of scope for Week 29 (deferred to V2 or post-Week-30)
+
+- Subagent Instruction Engine (§ 28.1) — V2
+- Generative UI Canvas (§ 26.8) — V2
+- Full vLLM serving layer — Week 30 if there's time, else V2
+- Production fine-tuned model in the Model Router — V2
+- Multi-tenant AaS (Pillar 23) — V3
+
+### Week 29 alignment with § 28 future vision
+
+- Work Ledger v2's `correlation_id` + `actor` fields make § 28.1 subagent integration a no-migration add
+- ROI Dashboard's harness-language copy reinforces § 28.3 positioning ahead of the Week 30 reveal
+- Model Lifecycle Registry v1 anchors § 28.2 behaviour #10 (governed self-improvement loop) with a concrete artifact
+- Fine-tuning prototype proves Shadow Learning pipeline (§ 26.6) is real, not aspirational

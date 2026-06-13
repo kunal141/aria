@@ -540,18 +540,55 @@ def _build_evolution_approval_card(data: dict, task_id: str) -> dict:
     ]
 
     # ── Pending updates list (list_pending action) ─────────────────────────────
+    # Each pending update gets its own Container with inline Approve/Reject
+    # buttons that carry the exact update_id.  Selecting one release changes
+    # only that release; other pending releases are unaffected.
     if action == "list_pending" and updates:
-        facts = [
-            {
-                "title": u.get("update_id", "?")[:16],
-                "value": (
-                    f"{u.get('component', '?')} v{u.get('version', '?')} "
-                    f"— {u.get('status', '?')}"
-                ),
-            }
-            for u in updates[:5]
-        ]
-        body.append({"type": "FactSet", "facts": facts})
+        for u in updates[:5]:
+            uid = u.get("update_id", "")
+            body.append({
+                "type": "Container",
+                "separator": True,
+                "items": [
+                    {
+                        "type": "FactSet",
+                        "facts": [
+                            {"title": "Update ID",  "value": uid[:24]},
+                            {"title": "Component",  "value": u.get("component", "?")},
+                            {"title": "Version",    "value": u.get("version", "?")},
+                            {"title": "Status",     "value": u.get("status", "?")},
+                            {"title": "Proposer",   "value": u.get("proposer", "?")},
+                        ],
+                    },
+                    {
+                        "type": "ActionSet",
+                        "actions": [
+                            {
+                                "type":  "Action.Submit",
+                                "title": "✅ Approve",
+                                "style": "positive",
+                                "data": {
+                                    "aria_action":          "approve",
+                                    "aria_source":          "evolution_card",
+                                    "task_id":              task_id,
+                                    "evolution_update_id":  uid,
+                                },
+                            },
+                            {
+                                "type":  "Action.Submit",
+                                "title": "❌ Reject",
+                                "style": "destructive",
+                                "data": {
+                                    "aria_action":          "reject",
+                                    "aria_source":          "evolution_card",
+                                    "task_id":              task_id,
+                                    "evolution_update_id":  uid,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            })
 
     # ── Version comparison card (compare_update action) ────────────────────────
     elif action == "compare_update":
@@ -670,29 +707,30 @@ def _build_evolution_approval_card(data: dict, task_id: str) -> dict:
         "color": "Accent",
     })
 
-    # Determine the specific update_id to approve/reject, if available.
-    # For compare_update and evaluate_proposal actions there is a single update.
-    # For scan/list, include the first queued update_id if present.
+    # Determine the specific update_id for single-update actions.
+    # For compare_update and evaluate_proposal there is exactly one update.
+    # For scan/list (non-list_pending), include the first queued update_id.
     action_update_id = (
         data.get("update_id")
         or (update_ids[0] if update_ids else None)
         or ""
     )
 
-    return {
-        "type": "AdaptiveCard",
-        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-        "version": "1.4",
-        "body": body,
-        "actions": [
+    # For list_pending the per-update Containers above carry all action buttons;
+    # only add global footer actions for single-update flows.
+    if action == "list_pending":
+        card_actions: list = []
+    else:
+        card_actions = [
             {
                 "type": "Action.Submit",
                 "title": "✅ Approve Update",
                 "style": "positive",
                 "data": {
-                    "aria_action":      "approve",
-                    "task_id":          task_id,
-                    "evolution_update_id": action_update_id,
+                    "aria_action":          "approve",
+                    "aria_source":          "evolution_card",
+                    "task_id":              task_id,
+                    "evolution_update_id":  action_update_id,
                 },
             },
             {
@@ -700,33 +738,34 @@ def _build_evolution_approval_card(data: dict, task_id: str) -> dict:
                 "title": "❌ Reject Update",
                 "style": "destructive",
                 "data": {
-                    "aria_action":      "reject",
-                    "task_id":          task_id,
-                    "evolution_update_id": action_update_id,
+                    "aria_action":          "reject",
+                    "aria_source":          "evolution_card",
+                    "task_id":              task_id,
+                    "evolution_update_id":  action_update_id,
                 },
             },
-            {
-                "type": "Action.ShowCard",
-                "title": "📋 All Pending Updates",
-                "card": {
-                    "type": "AdaptiveCard",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": (
-                                "\n".join(
-                                    f"• {u.get('update_id', '?')[:16]}: "
-                                    f"{u.get('component', '?')} v{u.get('version', '?')}"
-                                    for u in updates[:5]
-                                )
-                                or "No pending updates."
-                            ),
-                            "wrap": True,
-                        }
-                    ],
+        ]
+        # Add "Promote Canary → Active" button when the update is in canary status
+        single_update_status = data.get("status", "")
+        if single_update_status == "canary" or action == "compare_update":
+            card_actions.append({
+                "type": "Action.Submit",
+                "title": "🚀 Promote Canary → Active",
+                "style": "positive",
+                "data": {
+                    "aria_action":          "promote_canary",
+                    "aria_source":          "evolution_card",
+                    "task_id":              task_id,
+                    "evolution_update_id":  action_update_id,
                 },
-            },
-        ],
+            })
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": body,
+        "actions": card_actions,
     }
 
 
@@ -785,6 +824,29 @@ def _execute_evolution_after_approval(update_id: str, approver: str) -> Optional
             "version":    approved.semantic_version,
             "status":     approved.status.value,
             "approver":   approved.approver,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _execute_evolution_promote_canary(update_id: str) -> Optional[dict]:
+    """
+    Call UpdateManager.promote_canary() when a Teams canary card is promoted.
+
+    Returns dict with update_id, component, version, status on success.
+    Returns {"error": ...} on failure.  Never raises.
+    """
+    if not update_id:
+        return {"error": "No update_id in card payload — cannot promote canary."}
+    try:
+        from aria.nodes.evolution_node import get_update_manager
+        mgr = get_update_manager()
+        promoted = mgr.promote_canary(update_id)
+        return {
+            "update_id": promoted.update_id,
+            "component": promoted.component_name,
+            "version":   promoted.semantic_version,
+            "status":    promoted.status.value,
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -905,7 +967,7 @@ class ARIAActivityHandler(ActivityHandler):
         """
         action  = value.get("aria_action")
         task_id = value.get("task_id", "unknown")
-        if action not in ("approve", "reject"):
+        if action not in ("approve", "reject", "promote_canary"):
             await turn_context.send_activity(
                 MessageFactory.text(f"Unknown card action: {action}")
             )
@@ -915,14 +977,31 @@ class ARIAActivityHandler(ActivityHandler):
             or (turn_context.activity.from_property or {}).get("name", "teams-user")
         )
         evolution_update_id: str = value.get("evolution_update_id", "")
+        aria_source: str = value.get("aria_source", "")
 
-        # ── Evolution approval path — direct UpdateManager call ────────────────
+        # ── Guard: evolution card with missing update_id is always an error ───────
+        # When aria_source marks this as an evolution card but evolution_update_id
+        # is absent, refuse the action rather than falling through to the
+        # governance path which could resolve an unrelated approval.
+        if aria_source == "evolution_card" and not evolution_update_id:
+            await turn_context.send_activity(
+                MessageFactory.text(
+                    "⚠️ Evolution card action received without an update ID. "
+                    "The action has been blocked to prevent accidental approval "
+                    "of an unrelated task. Please retry from the pending updates list."
+                )
+            )
+            return
+
+        # ── Evolution approval / promote path — direct UpdateManager call ────────
         # Evolution cards carry an explicit evolution_update_id. When present,
         # bypass the governance approval_gate (evolution uses UpdateManager's own
-        # approval lifecycle) and call approve/reject directly.
+        # approval lifecycle) and call approve/reject/promote directly.
         if evolution_update_id:
             if action == "approve":
                 result = _execute_evolution_after_approval(evolution_update_id, approver=from_name)
+            elif action == "promote_canary":
+                result = _execute_evolution_promote_canary(evolution_update_id)
             else:
                 result = _execute_evolution_rejection(
                     evolution_update_id,
@@ -930,10 +1009,15 @@ class ARIAActivityHandler(ActivityHandler):
                 )
 
             if result and "error" not in result:
-                status = result.get("status", "unknown")
+                status    = result.get("status", "unknown")
                 component = result.get("component", evolution_update_id[:16])
                 version   = result.get("version", "")
-                verb      = "approved → canary" if action == "approve" else "rejected"
+                if action == "approve":
+                    verb = "approved → canary"
+                elif action == "promote_canary":
+                    verb = "promoted → active"
+                else:
+                    verb = "rejected"
                 await turn_context.send_activity(
                     MessageFactory.text(
                         f"✅ Update {verb} by {from_name}.\n"

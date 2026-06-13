@@ -233,3 +233,18 @@ class ConcurrentActivationError(RuntimeError):
             f"Update {update_id!r} is already being activated. "
             "Concurrent activation blocked."
         )
+
+
+class MultipleActiveReleasesError(RuntimeError):
+    """
+    Raised by the store when a batch would result in more than one active
+    release per component. This is the store-level defensive invariant —
+    the component lock prevents concurrent operations, this check guarantees
+    correctness even if the lock is bypassed or misused.
+    """
+    def __init__(self, violators: dict[str, list[str]]) -> None:
+        self.violators = violators
+        super().__init__(
+            f"save_batch rejected — invariant violation: more than one "
+            f"active release per component: {violators!r}"
+        )

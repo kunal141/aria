@@ -12,7 +12,7 @@ Relevant systems: CMS pipelines, recommendation engine,
                   notification service, personalisation, analytics
 """
 import json
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -55,6 +55,8 @@ class PRReviewOutput(BaseModel):
     business_impact: str                # effect on CTR, feed, notifications, etc.
     positive_observations: list[str]    # what was done well
     version: str = "v1"
+    component_version: Optional[str] = None   # semantic version of the active prompt (if promoted)
+    component_hash:    Optional[str] = None   # SHA-256 of the prompt content actually used
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +113,23 @@ Be specific to media-tech systems. Do not give generic advice."""
     tags=["skill", "pr_review", "aria"],
 )
 def run(input: PRReviewInput) -> PRReviewOutput:
+    # Load active prompt from the component store. The "no active release"
+    # case is handled by component_loader.load() itself, which returns
+    # ``(default, None, None)`` — so a fallback to the hardcoded ``_SYSTEM``
+    # only occurs when no release exists at all.
+    #
+    # If an active release IS present, the loader reads its on-disk artifact
+    # and re-verifies the SHA-256 hash. A missing, unreadable, outside-root,
+    # or hash-mismatched artifact raises ComponentArtifactError and this
+    # function MUST allow it to propagate — silently falling back to
+    # ``_SYSTEM`` would defeat the runtime artifact-authority contract by
+    # running PR review with the wrong (and unauditable) prompt.
+    import aria.evolution.component_loader as _cl
+
+    system_prompt, comp_hash, comp_version = _cl.load(
+        "pr_review_prompt", default=_SYSTEM,
+    )
+
     if not has_llm():
         return PRReviewOutput(
             verdict="needs_discussion",
@@ -144,6 +163,8 @@ def run(input: PRReviewInput) -> PRReviewOutput:
                 "Clean separation of ranking logic from data fetching",
                 "Good use of caching for candidate retrieval",
             ],
+            component_hash=comp_hash,
+            component_version=comp_version,
         )
 
     from langchain_core.prompts import ChatPromptTemplate
@@ -157,7 +178,7 @@ def run(input: PRReviewInput) -> PRReviewOutput:
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", _SYSTEM),
+            ("system", system_prompt),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(task_type="pr_review", data_sensitivity=input.data_sensitivity, audience=input.audience, temperature=0)
@@ -168,7 +189,7 @@ def run(input: PRReviewInput) -> PRReviewOutput:
 
     try:
         data = json.loads(raw)
-        return PRReviewOutput(**data)
+        return PRReviewOutput(**data, component_hash=comp_hash, component_version=comp_version)
     except Exception as e:
         return PRReviewOutput(
             verdict="needs_discussion",
@@ -179,6 +200,8 @@ def run(input: PRReviewInput) -> PRReviewOutput:
             deployment_risks=[],
             business_impact="Could not parse review output.",
             positive_observations=[],
+            component_hash=comp_hash,
+            component_version=comp_version,
         )
 
 
