@@ -664,10 +664,11 @@ canary deployment, and verified rollback. The marketplace is explicitly deferred
 
 ---
 
-## Week 28 Stabilization — Round 5 Fixes (Awaiting Codex Re-Audit)
+## Week 28 Stabilization — Round 5 Fixes (CLOSED — Week 28 later ACCEPTED by Codex)
 
 **Date**: 2026-06-10
-**Status**: Round 5 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+**Status (historical)**: Round 5 fixes submitted; awaiting Codex re-audit. Week 29 blocked until accepted.
+**Resolved (2026-06-14)**: Week 28 Stabilization was subsequently ACCEPTED by Codex and Week 29 completed (all five priorities accepted; 1021 backend tests passing, 1 skipped; no real training, no deployment, no vLLM). The "awaiting"/"blocked" wording below is historical context only — see the **Week 29 — COMPLETE (Accepted by Codex)** entry above.
 
 **Round 5 findings addressed (all Codex re-audit findings from round 4):**
 
@@ -679,14 +680,15 @@ canary deployment, and verified rollback. The marketplace is explicitly deferred
 
 ---
 
-## Week 28 Stabilization — Round 12 Narrow Fixes (Awaiting Codex Re-Audit)
+## Week 28 Stabilization — Round 12 Narrow Fixes (CLOSED — Week 28 later ACCEPTED by Codex)
 
 **Date**: 2026-06-11
-**Status**: Round 11 component-identity work was NOT accepted by Codex —
+**Status (historical)**: Round 11 component-identity work was NOT accepted by Codex —
 two P1 gaps surfaced (monitor produced zero proposals; pr_review_skill
 silently swallowed `ComponentArtifactError`). Round 12 closes those two
 gaps with no architecture redesign. Week 29 BLOCKED until Codex
 independently verifies. Do NOT mark complete prior to Codex acceptance.
+**Resolved (2026-06-14)**: Week 28 Stabilization was subsequently ACCEPTED by Codex and Week 29 completed (all five priorities accepted; 1021 backend tests passing, 1 skipped; no real training, no deployment, no vLLM). The "BLOCKED"/"awaiting" wording above is historical context only — see the **Week 29 — COMPLETE (Accepted by Codex)** entry above.
 
 **Verified baseline (2026-06-11):**
 - `test_week28_stabilization.py`: 38 passed

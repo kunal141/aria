@@ -278,3 +278,50 @@ bypassing any gate. `ci_cd_node` had no evidence assembly at all.
 - `uv run pytest -q`: **591 passed**, 2 warnings
 - Python compilation: passed
 - Git working tree: clean
+
+---
+
+## Week 28 — Governed Self-Improvement + Update Manager — `ddcb192` (2026-06-09) — ACCEPTED
+
+### Scope complete
+- `aria/evolution/update_manager/`: governed update lifecycle — propose → canary → promote → rollback; `UpdateRelease` typed contracts; `InMemoryUpdateStore` (atomic `save_batch`, schema-validated, file-backed flush); constitutional checks
+- Component identity: `component_loader.py` + `component_registry.py` — runtime authority is the immutable, versioned artifact; monitor detects capability gaps and queues proposals (pr_review_prompt component)
+- Real artifact write + verify, with backup/restore on failure; path confinement under `apps/backend/deployments/` (gitignored runtime tree)
+- Pipeline wiring (`evolution/pipeline.py`, `nodes/evolution_node.py`) + Work Ledger correlation
+
+### Codex review
+- Multiple stabilization rounds (3 → 12); **every finding closed**. Final round-3 commit closed all 7 findings with real artifact write/restore.
+- **Status: ACCEPTED by Codex.** Stale per-round "Awaiting Codex Re-Audit" / "Week 29 blocked" notes in `apps/backend/BUILD_LOG.md` are historical context only.
+
+### Verified clean (at Week 28 acceptance)
+- backend suite: **687 passed**
+- Python compilation: passed
+- Git working tree: clean
+
+---
+
+## Week 29 — AI Work Ledger v2 → Fine-Tuning Prototype — `9590750` (2026-06-14) — COMPLETE
+
+### Scope complete — all five priorities ACCEPTED by Codex
+1. **AI Work Ledger v2** — schema-versioned, queryable JSONL ledger (`correlation_id`, `actor`, `risk_tier`, per-event cost/latency, `outcome_label`)
+2. **ROI Dashboard** — frontend view over Work Ledger v2, harness-engineering copy
+3. **Dataset Export Prototype** — SFT (input/output) + DPO (prompt/chosen/rejected) JSONL from approved/corrected ledger events; ledger-backed + content-bound provenance, DPO `chosen == correction` enforced
+4. **Model Lifecycle Registry v1** — file-backed JSONL registry (base version, dataset hash, holdout eval, rollback pointer, active skills)
+5. **Fine-Tuning Prototype** — offline deterministic dry-run LoRA planner/runner (dependency-injected real-trainer seam); proves the pipeline only
+
+### Final accepted state
+- Week 28 Stabilization **accepted**
+- Week 29 all five priorities **accepted**
+- backend: **1021 passed, 1 skipped**
+- **no real training** (offline deterministic dry-run; no GPU, no model download)
+- **no deployment** (active model stays NONE; production graph / model router unchanged)
+- **no vLLM** serving
+- **Week 30 not started**
+
+### Notes
+- `CLAUDE.md` Section 28.4 (Agentic AI Roadmap — eight V2/V3 capabilities) added as documentation-only future roadmap; not implemented.
+- Runtime `deployments/prompts/*.txt` artifacts removed from version control and gitignored; conftest autouse fixtures isolate ledger + deployment writes to tmp.
+
+### Verified clean
+- `git diff --check`: clean (only benign LF→CRLF warnings)
+- Git working tree: clean at commit `9590750`
