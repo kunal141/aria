@@ -43,8 +43,11 @@ from aria.fine_tuning.models import (
     utc_now,
 )
 from aria.fine_tuning.planner import (
+    AcceptAllPlanProvenance,
     FineTuningPlanner,
     FineTuningPolicy,
+    LedgerEventProvenanceVerifier,
+    PlanProvenanceVerifier,
     confined_dir,
 )
 from aria.fine_tuning.evaluator import (
@@ -76,6 +79,9 @@ __all__ = [
     # Planner
     "FineTuningPlanner",
     "FineTuningPolicy",
+    "PlanProvenanceVerifier",
+    "LedgerEventProvenanceVerifier",
+    "AcceptAllPlanProvenance",
     "confined_dir",
     # Evaluation
     "CandidateEvaluation",

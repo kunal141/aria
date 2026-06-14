@@ -38,3 +38,24 @@ def _isolate_ledger_v2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         yield isolated_path
     finally:
         ledger_writer.reset_default_writer()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_deployment_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """
+    Redirect the evolution UpdateManager deployment root to a per-test temp dir
+    so NO test — now or in future — writes deployed-prompt artifacts into the
+    real ``apps/backend/deployments/`` tree (Codex Round-13 Finding 3).
+
+    ``operations.DEPLOYMENT_ROOT`` is resolved at *write* time both by the
+    pipeline (artifact_path) and by ``UpdateManager`` when no explicit
+    ``deployment_root`` was passed, so monkeypatching this single module global
+    covers every promotion path. Tests that pass an explicit
+    ``deployment_root=tmp_path`` keep that precedence; tests that set
+    ``ops.DEPLOYMENT_ROOT`` themselves override this value (later wins).
+    """
+    from aria.evolution.update_manager import operations as ops
+
+    isolated_root = tmp_path / "deployments"
+    monkeypatch.setattr(ops, "DEPLOYMENT_ROOT", isolated_root)
+    yield isolated_root

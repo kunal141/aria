@@ -25,6 +25,7 @@ paid API. Covers the full required matrix:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 from datetime import datetime, timezone
@@ -32,13 +33,23 @@ from pathlib import Path
 
 import pytest
 
-from aria.ledger.events import ModelLifecycleEvent
+from aria.ledger.events import (
+    ActorType,
+    CorrectionRecorded,
+    ModelLifecycleEvent,
+    OutcomeRecorded,
+    SkillInvoked,
+    make_envelope,
+)
 from aria.ledger.reader import LedgerReader
 from aria.ledger.writer import LedgerWriter
 from aria.model_registry import (
     InMemoryModelStore,
+    ModelProvider,
+    ModelRecord,
     ModelRegistry,
     ModelStatus,
+    ModelType,
     OfflineEvaluator,
     RegistryPersistenceError,
     default_pr_review_holdout,
@@ -52,6 +63,7 @@ from aria.training_data import (
 )
 from aria.training_data.exporter import ExportConfig
 from aria.fine_tuning import (
+    AcceptAllPlanProvenance,
     CandidateEvaluation,
     DatasetInsufficientError,
     DatasetIntegrityError,
@@ -61,6 +73,7 @@ from aria.fine_tuning import (
     FineTuningPipeline,
     FineTuningPlanner,
     HyperparameterProposal,
+    LedgerEventProvenanceVerifier,
     OfflineCandidateEvaluator,
     OfflineMockRunner,
     TrainingMethod,
@@ -212,7 +225,7 @@ def test_accepted_dataset_produces_plan(tmp_path):
     artifact_root = tmp_path / "artifacts"
     _build_export(export_dir, n_sft=8, n_dpo=2)
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     manifest = planner.build_manifest(export_dir)
     plan = planner.plan(manifest, artifact_root=artifact_root)
 
@@ -238,7 +251,7 @@ def test_tampered_dataset_rejected(tmp_path):
     export_dir = tmp_path / "dataset"
     _build_export(export_dir, n_sft=8, n_dpo=2)
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     manifest = planner.build_manifest(export_dir)
 
     # Modify a file AFTER the manifest snapshot.
@@ -258,7 +271,7 @@ def test_insufficient_dataset_rejected(tmp_path):
     export_dir = tmp_path / "dataset"
     _build_export(export_dir, n_sft=2, n_dpo=0)  # below the prototype min of 6
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     manifest = planner.build_manifest(export_dir)
     assert manifest.total_examples == 2
     with pytest.raises(DatasetInsufficientError):
@@ -281,7 +294,7 @@ def test_privacy_rejection(tmp_path):
     ]
     _write_raw_export(export_dir, sft_rows, dpo_rows=[])
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     manifest = planner.build_manifest(export_dir)
     with pytest.raises(DatasetPrivacyError):
         planner.plan(manifest, artifact_root=tmp_path / "artifacts")
@@ -302,7 +315,7 @@ def test_provenance_rejection(tmp_path):
     ]
     _write_raw_export(export_dir, sft_rows, dpo_rows=[])
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     manifest = planner.build_manifest(export_dir)
     with pytest.raises(DatasetProvenanceError):
         planner.plan(manifest, artifact_root=tmp_path / "artifacts")
@@ -316,8 +329,8 @@ def test_deterministic_plan_generation(tmp_path):
     artifact_root = tmp_path / "artifacts"
     _build_export(export_dir, n_sft=8, n_dpo=2)
 
-    p1 = FineTuningPlanner(clock=_fixed_clock)
-    p2 = FineTuningPlanner(clock=_fixed_clock)
+    p1 = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
+    p2 = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     plan_a = p1.plan(p1.build_manifest(export_dir), artifact_root=artifact_root)
     plan_b = p2.plan(p2.build_manifest(export_dir), artifact_root=artifact_root)
     assert plan_a == plan_b
@@ -331,7 +344,7 @@ def test_stable_configuration_hash(tmp_path):
     export_dir = tmp_path / "dataset"
     _build_export(export_dir, n_sft=8, n_dpo=2)
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     manifest = planner.build_manifest(export_dir)
     plan = planner.plan(manifest, artifact_root=tmp_path / "artifacts")
 
@@ -363,7 +376,8 @@ def test_dry_run_no_external_call(tmp_path, monkeypatch):
     monkeypatch.setattr(socket, "socket", _no_sockets)
 
     pipeline = FineTuningPipeline(
-        reg, artifact_root=artifact_root, production_consumer=CONSUMER, clock=_fixed_clock,
+        reg, artifact_root=artifact_root, production_consumer=CONSUMER,
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     result = pipeline.run(export_dir, dry_run=True)
     assert result.training_result.status is TrainingStatus.dry_run
@@ -380,7 +394,7 @@ def test_mock_runner_deterministic(tmp_path):
     artifact_root.mkdir(parents=True, exist_ok=True)
     _build_export(export_dir, n_sft=8, n_dpo=2)
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     plan = planner.plan(planner.build_manifest(export_dir), artifact_root=artifact_root)
 
     runner = OfflineMockRunner(artifact_root, clock=_fixed_clock)
@@ -408,7 +422,7 @@ def test_baseline_comparison(tmp_path):
     export_dir = tmp_path / "dataset"
     artifact_root = tmp_path / "artifacts"
     _build_export(export_dir, n_sft=8, n_dpo=2)
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     plan = planner.plan(planner.build_manifest(export_dir), artifact_root=artifact_root)
 
     # A registered candidate record to score (built the way the pipeline does).
@@ -416,7 +430,8 @@ def test_baseline_comparison(tmp_path):
     mock = runner.run(plan, dry_run=True)
     reg, _, _ = _registry(tmp_path, artifact_root=artifact_root)
     pipeline = FineTuningPipeline(
-        reg, artifact_root=artifact_root, production_consumer=CONSUMER, clock=_fixed_clock,
+        reg, artifact_root=artifact_root, production_consumer=CONSUMER,
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     candidate = pipeline._build_candidate(plan, mock)
 
@@ -446,7 +461,8 @@ def test_failed_evaluation_prevents_approval(tmp_path):
 
     pipeline = FineTuningPipeline(
         reg, artifact_root=artifact_root, production_consumer=CONSUMER,
-        candidate_evaluator=_StubCandidateEvaluator(wins=False), clock=_fixed_clock,
+        candidate_evaluator=_StubCandidateEvaluator(wins=False),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     result = pipeline.run(export_dir, dry_run=True)
     assert result.evaluation.candidate_wins is False
@@ -466,7 +482,8 @@ def test_successful_evaluation_registers_candidate(tmp_path):
 
     pipeline = FineTuningPipeline(
         reg, artifact_root=artifact_root, production_consumer=CONSUMER,
-        candidate_evaluator=_StubCandidateEvaluator(wins=True), clock=_fixed_clock,
+        candidate_evaluator=_StubCandidateEvaluator(wins=True),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     result = pipeline.run(export_dir, dry_run=True)
     assert result.registered is True
@@ -488,7 +505,8 @@ def test_registry_retains_dataset_provenance(tmp_path):
 
     pipeline = FineTuningPipeline(
         reg, artifact_root=artifact_root, production_consumer=CONSUMER,
-        candidate_evaluator=_StubCandidateEvaluator(wins=True), clock=_fixed_clock,
+        candidate_evaluator=_StubCandidateEvaluator(wins=True),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     result = pipeline.run(export_dir, dry_run=True)
     cand = result.candidate
@@ -512,7 +530,8 @@ def test_candidate_never_activated(tmp_path, wins):
 
     pipeline = FineTuningPipeline(
         reg, artifact_root=artifact_root, production_consumer=CONSUMER,
-        candidate_evaluator=_StubCandidateEvaluator(wins=wins), clock=_fixed_clock,
+        candidate_evaluator=_StubCandidateEvaluator(wins=wins),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     result = pipeline.run(export_dir, dry_run=True)
     assert result.activated is False
@@ -531,7 +550,8 @@ def test_no_production_router_change(tmp_path):
 
     pipeline = FineTuningPipeline(
         reg, artifact_root=artifact_root, production_consumer=CONSUMER,
-        candidate_evaluator=_StubCandidateEvaluator(wins=True), clock=_fixed_clock,
+        candidate_evaluator=_StubCandidateEvaluator(wins=True),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     pipeline.run(export_dir, dry_run=True)
     # The only states reachable by the prototype are pre-activation states.
@@ -552,7 +572,8 @@ def test_work_ledger_events_emitted(tmp_path):
 
     pipeline = FineTuningPipeline(
         reg, artifact_root=artifact_root, production_consumer=CONSUMER,
-        candidate_evaluator=_StubCandidateEvaluator(wins=True), clock=_fixed_clock,
+        candidate_evaluator=_StubCandidateEvaluator(wins=True),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     pipeline.run(export_dir, dry_run=True)
 
@@ -578,7 +599,7 @@ def test_artifact_paths_confined(tmp_path, dry_run):
     runner_root.mkdir(parents=True, exist_ok=True)
     _build_export(export_dir, n_sft=8, n_dpo=2)
 
-    planner = FineTuningPlanner(clock=_fixed_clock)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
     plan = planner.plan(planner.build_manifest(export_dir), artifact_root=plan_root)
 
     runner = OfflineMockRunner(runner_root, clock=_fixed_clock)
@@ -601,10 +622,577 @@ def test_persistence_failure_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "_flush", _boom)
 
     pipeline = FineTuningPipeline(
-        reg, artifact_root=artifact_root, production_consumer=CONSUMER, clock=_fixed_clock,
+        reg, artifact_root=artifact_root, production_consumer=CONSUMER,
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
     )
     with pytest.raises(RegistryPersistenceError):
         pipeline.run(export_dir, dry_run=True)
     # Fail-closed: nothing committed to the store.
     assert len(store) == 0
     assert reg.get_active_model(CONSUMER) is None
+
+
+# ── Codex re-audit regressions ─────────────────────────────────────────────────
+#
+# These lock in the behaviours that green tests previously missed. They are
+# written to FAIL against the pre-fix code and PASS only with the fixes in place.
+
+
+def _write_matching_ledger(ledger_path: Path, *, n_sft: int = 8, n_dpo: int = 2) -> LedgerWriter:
+    """
+    Write REAL Work Ledger v2 events whose ``event_id``s are exactly the ones
+    the Priority-3 export cites for each task: an ``OutcomeRecorded`` per SFT
+    task (``evt-sft-NN-outcome``) and a ``CorrectionRecorded`` per DPO task
+    (``evt-dpo-NN-correction``). Going through a real ``LedgerWriter`` means
+    the verifier is later built from genuinely recorded events, not a fixture
+    handed to it directly.
+    """
+    writer = LedgerWriter(ledger_path)
+    for i in range(n_sft):
+        task_id = f"sft-{i:02d}"
+        # The authorising event records the SAME content_hash the SFT candidate
+        # carries, so the planner's row-reconstructed canonical hash binds to it.
+        writer.append(
+            OutcomeRecorded(
+                **make_envelope(
+                    task_id=task_id, actor="aria", actor_type=ActorType.aria,
+                    event_id=f"evt-{task_id}-outcome", timestamp=FIXED_TS,
+                ),
+                outcome="approved",
+                content_hash=_sft_candidate(i).content_hash,
+            )
+        )
+    for i in range(n_dpo):
+        task_id = f"dpo-{i:02d}"
+        writer.append(
+            CorrectionRecorded(
+                **make_envelope(
+                    task_id=task_id, actor="human:kunal", actor_type=ActorType.human,
+                    event_id=f"evt-{task_id}-correction", timestamp=FIXED_TS,
+                ),
+                content_hash=_dpo_candidate(i).content_hash,
+            )
+        )
+    return writer
+
+
+def _ledger_verifier(ledger_path: Path) -> LedgerEventProvenanceVerifier:
+    """Build the task-bound verifier by READING the ledger back (not the export)."""
+    return LedgerEventProvenanceVerifier.from_ledger_events(
+        LedgerReader(v2_path=ledger_path).v2_events()
+    )
+
+
+# F5 — the manifest is derived from PHYSICAL rows; the report must AGREE exactly,
+# and provenance must be corroborated against the ledger, TASK-BOUND (fail closed).
+
+
+def test_f5_report_total_count_mismatch_rejected(tmp_path):
+    """A report that overstates the SFT count vs the physical rows is rejected."""
+    export_dir = tmp_path / "dataset"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+
+    report_path = export_dir / "dataset_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["total_sft_examples"] = report["total_sft_examples"] + 5  # physically false
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
+    with pytest.raises(DatasetIntegrityError):
+        planner.build_manifest(export_dir)
+
+
+def test_f5_report_per_skill_mismatch_rejected(tmp_path):
+    """A report whose examples_by_skill disagrees with the rows is rejected."""
+    export_dir = tmp_path / "dataset"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+
+    report_path = export_dir / "dataset_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["examples_by_skill"] = {"totally_made_up_skill": report["total_sft_examples"]}
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
+    with pytest.raises(DatasetIntegrityError):
+        planner.build_manifest(export_dir)
+
+
+def test_f5_missing_skill_name_rejected(tmp_path):
+    """An SFT row with no skill_name cannot be attributed → fail closed."""
+    export_dir = tmp_path / "dataset"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "sft_examples.jsonl").write_text(
+        json.dumps({"input": "Review.", "output": "LOW.", "source_events": ["evt-1"]}) + "\n",
+        encoding="utf-8",
+    )
+    (export_dir / "dpo_pairs.jsonl").write_text("", encoding="utf-8")
+    (export_dir / "dataset_report.json").write_text(
+        json.dumps(
+            {
+                "total_sft_examples": 1,
+                "total_dpo_pairs": 0,
+                "examples_by_skill": {},
+                "pairs_by_skill": {},
+                "ready_for_finetuning": False,
+                "minimum_examples_per_skill": 50,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=AcceptAllPlanProvenance())
+    with pytest.raises(DatasetIntegrityError):
+        planner.build_manifest(export_dir)
+
+
+def test_f5_missing_provenance_verifier_fails_closed(tmp_path):
+    """A planner with NO provenance verifier refuses to plan (ledger gate 3b)."""
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+
+    planner = FineTuningPlanner(clock=_fixed_clock)  # deliberately no verifier
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+def test_f5_real_ledger_provenance_accepted(tmp_path):
+    """
+    The full real path: write events with a real LedgerWriter, read them back
+    with LedgerReader, build the task-bound verifier from those events, and the
+    planner accepts an export whose every citation is task-local + authorising.
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+    _write_matching_ledger(ledger_path, n_sft=8, n_dpo=2)
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    plan = planner.plan(manifest, artifact_root=artifact_root)
+    assert plan.sft_example_count == 8
+    assert plan.dpo_pair_count == 2
+
+
+def test_f5_cross_task_provenance_rejected(tmp_path):
+    """
+    Codex's exact exploit: an example for task A citing a REAL event that
+    belongs to task B. The event exists globally, but a task-bound verifier
+    rejects the borrowed citation.
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+
+    # Two real tasks, each with its own real outcome event.
+    writer = LedgerWriter(ledger_path)
+    for task_id in ("sft-00", "sft-01"):
+        writer.append(
+            OutcomeRecorded(
+                **make_envelope(
+                    task_id=task_id, actor="aria", actor_type=ActorType.aria,
+                    event_id=f"evt-{task_id}-outcome", timestamp=FIXED_TS,
+                ),
+                outcome="approved",
+            )
+        )
+    # Export row for sft-00 borrows sft-01's real event.
+    _write_raw_export(
+        export_dir,
+        sft_rows=[{
+            "task_id": "sft-00",
+            "skill_name": "pr_review_skill",
+            "input": "Review PR #100.",
+            "output": "Risk LOW.",
+            "source_events": ["evt-sft-01-outcome"],
+        }],
+        dpo_rows=[],
+    )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="cross-task"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+def test_f5_fabricated_provenance_rejected(tmp_path):
+    """A citation to an event that exists in NO task is rejected as fabricated."""
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+
+    writer = LedgerWriter(ledger_path)
+    writer.append(
+        OutcomeRecorded(
+            **make_envelope(
+                task_id="sft-00", actor="aria", actor_type=ActorType.aria,
+                event_id="evt-sft-00-outcome", timestamp=FIXED_TS,
+            ),
+            outcome="approved",
+        )
+    )
+    _write_raw_export(
+        export_dir,
+        sft_rows=[{
+            "task_id": "sft-00",
+            "skill_name": "pr_review_skill",
+            "input": "Review PR #100.",
+            "output": "Risk LOW.",
+            "source_events": ["evt-totally-fabricated"],
+        }],
+        dpo_rows=[],
+    )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="fabricated"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+def test_f5_inappropriate_event_type_rejected(tmp_path):
+    """
+    A citation to a real, task-local event of a NON-authorising type
+    (skill_invoked) is rejected — only learning-outcome events may authorise
+    training provenance.
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+
+    writer = LedgerWriter(ledger_path)
+    writer.append(
+        SkillInvoked(
+            **make_envelope(
+                task_id="sft-00", actor="aria", actor_type=ActorType.aria,
+                event_id="evt-sft-00-skill", timestamp=FIXED_TS,
+            ),
+            skill_name="pr_review_skill",
+        )
+    )
+    _write_raw_export(
+        export_dir,
+        sft_rows=[{
+            "task_id": "sft-00",
+            "skill_name": "pr_review_skill",
+            "input": "Review PR #100.",
+            "output": "Risk LOW.",
+            "source_events": ["evt-sft-00-skill"],
+        }],
+        dpo_rows=[],
+    )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="authorise training provenance"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+def test_f5_unknown_task_provenance_rejected(tmp_path):
+    """An example whose task_id has NO events in the ledger fails closed."""
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+
+    # Ledger knows only sft-00; the export row belongs to an unknown task.
+    writer = LedgerWriter(ledger_path)
+    writer.append(
+        OutcomeRecorded(
+            **make_envelope(
+                task_id="sft-00", actor="aria", actor_type=ActorType.aria,
+                event_id="evt-sft-00-outcome", timestamp=FIXED_TS,
+            ),
+            outcome="approved",
+        )
+    )
+    _write_raw_export(
+        export_dir,
+        sft_rows=[{
+            "task_id": "ghost-99",
+            "skill_name": "pr_review_skill",
+            "input": "Review PR #100.",
+            "output": "Risk LOW.",
+            "source_events": ["evt-sft-00-outcome"],
+        }],
+        dpo_rows=[],
+    )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="no events recorded"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+# F1 — CONTENT BINDING. A cited OutcomeRecorded / CorrectionRecorded event only
+# authorises the EXACT content it judged. Re-using a real, same-task approval
+# marker for DIFFERENT (poisoned) content — or citing a hashless legacy event —
+# must fail closed. These reproduce Codex's "TAMPERED_CONTENT_ACCEPTED" exploit
+# end-to-end through real LedgerWriter → LedgerReader events.
+
+
+def test_f1_tampered_content_rejected(tmp_path):
+    """
+    Poison one exported row's output AFTER export but BEFORE the manifest
+    snapshot (so the integrity gate passes over the tampered files), while the
+    cited OutcomeRecorded event still records the ORIGINAL content's hash. The
+    row-reconstructed canonical hash no longer equals the event's recorded
+    hash, so the citation no longer authorises this content.
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+    _write_matching_ledger(ledger_path, n_sft=8, n_dpo=2)
+
+    sft_path = export_dir / "sft_examples.jsonl"
+    lines = sft_path.read_text(encoding="utf-8").splitlines()
+    poisoned = json.loads(lines[0])
+    poisoned["output"] = poisoned["output"] + " (silently altered to poison training)"
+    lines[0] = json.dumps(poisoned, sort_keys=True)
+    sft_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)  # snapshots tampered files → integrity OK
+    with pytest.raises(DatasetProvenanceError, match="bound to this example"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+def test_f1_hashless_event_fails_closed(tmp_path):
+    """
+    A ledger whose authorising events recorded NO content_hash (legacy /
+    pre-binding). They are real, task-local, and of an authorising type — but a
+    hashless event cannot bind to any exported content, so it must fail closed
+    rather than authorise by type alone.
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+
+    writer = LedgerWriter(ledger_path)
+    for i in range(8):
+        task_id = f"sft-{i:02d}"
+        writer.append(
+            OutcomeRecorded(
+                **make_envelope(
+                    task_id=task_id, actor="aria", actor_type=ActorType.aria,
+                    event_id=f"evt-{task_id}-outcome", timestamp=FIXED_TS,
+                ),
+                outcome="approved",  # NOTE: no content_hash → hashless legacy event
+            )
+        )
+    for i in range(2):
+        task_id = f"dpo-{i:02d}"
+        writer.append(
+            CorrectionRecorded(
+                **make_envelope(
+                    task_id=task_id, actor="human:kunal", actor_type=ActorType.human,
+                    event_id=f"evt-{task_id}-correction", timestamp=FIXED_TS,
+                )
+            )
+        )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="bound to this example"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+# F3 — DPO CHOSEN BINDING. The reconstructed canonical hash binds the DPO
+# `correction` (the ledger-authorised corrected output), but the preferred
+# response DPO actually trains toward is `chosen`. A row that keeps a valid,
+# ledger-bound `correction` while swapping ONLY `chosen` poisons what training
+# optimises for and must be rejected. Reproduces Codex's
+# "TAMPERED_DPO_CHOSEN_ACCEPTED" exploit end-to-end through real
+# LedgerWriter → LedgerReader events.
+
+
+def test_f3_tampered_dpo_chosen_rejected(tmp_path):
+    """
+    Poison ONLY the `chosen` field of one DPO pair AFTER export but BEFORE the
+    manifest snapshot (so the integrity gate passes over the tampered file),
+    leaving the ledger-authorised `correction` untouched. Pre-fix the canonical
+    hash ignored `chosen`, so the citation still bound and the poisoned preferred
+    response was accepted. Now `chosen != correction` fails closed.
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+    _write_matching_ledger(ledger_path, n_sft=8, n_dpo=2)
+
+    dpo_path = export_dir / "dpo_pairs.jsonl"
+    lines = dpo_path.read_text(encoding="utf-8").splitlines()
+    poisoned = json.loads(lines[0])
+    # Keep `correction` (ledger-bound) intact; swap ONLY the preferred response.
+    poisoned["chosen"] = poisoned["chosen"] + " (silently altered preferred response)"
+    lines[0] = json.dumps(poisoned, sort_keys=True)
+    dpo_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)  # snapshots tampered file → integrity OK
+    with pytest.raises(DatasetProvenanceError, match="chosen != correction"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+# F2 — IDENTIFIER NON-COERCION. Structural identifiers (task_id, each cited
+# source event) must be validated as non-empty strings BEFORE the verifier is
+# consulted. Pre-fix the planner str()-coerced them, letting an integer 123
+# masquerade as the ledger's string event id "123".
+
+
+def test_f2_non_string_source_event_not_coerced(tmp_path):
+    """An integer source-event id is rejected, NOT coerced into the string id."""
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+
+    cand = _sft_candidate(0)  # task sft-00, pr_review_skill, privacy-safe content
+    writer = LedgerWriter(ledger_path)
+    writer.append(
+        OutcomeRecorded(
+            **make_envelope(
+                task_id=cand.task_id, actor="aria", actor_type=ActorType.aria,
+                event_id="123", timestamp=FIXED_TS,
+            ),
+            outcome="approved",
+            content_hash=cand.content_hash,
+        )
+    )
+    # The row cites its real authorising event by INTEGER 123 (not "123").
+    _write_raw_export(
+        export_dir,
+        sft_rows=[{
+            "task_id": cand.task_id,
+            "skill_name": cand.skill_name,
+            "input": cand.input_text,
+            "output": cand.output_text,
+            "source_events": [123],
+        }],
+        dpo_rows=[],
+    )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="non-string or empty source event id"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+def test_f2_non_string_task_id_not_coerced(tmp_path):
+    """An integer task_id is rejected, NOT coerced into the string task id."""
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    ledger_path = tmp_path / "ledger_v2.jsonl"
+
+    input_text = "Review PR #100: adds a guard to the ranker path."
+    output_text = "Risk LOW. Branch is guarded; add one regression test before merge."
+    chash = canonical_content_hash(
+        task_id="5", skill_name="pr_review_skill",
+        input_text=input_text, output_text=output_text,
+        rejected_output=None, corrected_output=None,
+    )
+    writer = LedgerWriter(ledger_path)
+    writer.append(
+        OutcomeRecorded(
+            **make_envelope(
+                task_id="5", actor="aria", actor_type=ActorType.aria,
+                event_id="evt-5-outcome", timestamp=FIXED_TS,
+            ),
+            outcome="approved",
+            content_hash=chash,
+        )
+    )
+    # The row's task_id is the INTEGER 5; the ledger task is the STRING "5".
+    _write_raw_export(
+        export_dir,
+        sft_rows=[{
+            "task_id": 5,
+            "skill_name": "pr_review_skill",
+            "input": input_text,
+            "output": output_text,
+            "source_events": ["evt-5-outcome"],
+        }],
+        dpo_rows=[],
+    )
+
+    verifier = _ledger_verifier(ledger_path)
+    planner = FineTuningPlanner(clock=_fixed_clock, provenance_verifier=verifier)
+    manifest = planner.build_manifest(export_dir)
+    with pytest.raises(DatasetProvenanceError, match="non-string or empty task_id"):
+        planner.plan(manifest, artifact_root=artifact_root)
+
+
+# F6 — the prototype leaves the consumer's active model EXACTLY as it found it,
+# including the legitimate case where the consumer already has an active model.
+
+
+def _activate_incumbent(reg, artifact_root: Path, *, model_id="incumbent-1_0_0") -> str:
+    """Drive a real model to ACTIVE for CONSUMER (a pre-existing production model)."""
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    art = artifact_root / f"{model_id}.bin"
+    art.write_text("INCUMBENT-MOCK-WEIGHTS", encoding="utf-8")
+    digest = hashlib.sha256(art.read_bytes()).hexdigest()
+    record = ModelRecord(
+        model_id=model_id,
+        model_name="pr_review_specialist",
+        semantic_version="1.0.0",
+        provider=ModelProvider.prototype,
+        model_type=ModelType.fine_tuned,
+        base_model="Qwen2.5-Coder-7B-Instruct",
+        artifact_path=str(art),
+        artifact_hash=digest,
+        dataset_id="ds-incumbent",
+        dataset_hash="c" * 64,
+        created_by="aria",
+        created_at=FIXED_TS,
+        production_consumer=CONSUMER,
+    )
+    reg.register_model(record)
+    reg.record_evaluation(
+        record.model_id, OfflineEvaluator().evaluate(record, default_pr_review_holdout())
+    )
+    reg.request_approval(record.model_id)
+    reg.approve_model(record.model_id, approver="human:kunal")
+    reg.activate_model(record.model_id)
+    return record.model_id
+
+
+def test_f6_preexisting_active_model_left_unchanged(tmp_path):
+    """
+    With a consumer that ALREADY has an active production model, the prototype
+    must still run, must NOT change the active model, and must NOT activate its
+    candidate. (The pre-fix invariant asserted 'no active model' and would have
+    wrongly rejected this legitimate state.)
+    """
+    export_dir = tmp_path / "dataset"
+    artifact_root = tmp_path / "artifacts"
+    _build_export(export_dir, n_sft=8, n_dpo=2)
+    reg, _, _ = _registry(tmp_path, artifact_root=artifact_root)
+
+    incumbent_id = _activate_incumbent(reg, artifact_root)
+    assert reg.get_active_model(CONSUMER).model_id == incumbent_id
+
+    pipeline = FineTuningPipeline(
+        reg, artifact_root=artifact_root, production_consumer=CONSUMER,
+        candidate_evaluator=_StubCandidateEvaluator(wins=True),
+        provenance_verifier=AcceptAllPlanProvenance(), clock=_fixed_clock,
+    )
+    result = pipeline.run(export_dir, dry_run=True)
+
+    active_after = reg.get_active_model(CONSUMER)
+    assert active_after is not None
+    assert active_after.model_id == incumbent_id        # untouched
+    assert result.candidate.model_id != incumbent_id
+    assert result.candidate.status is ModelStatus.awaiting_approval
+    assert result.activated is False

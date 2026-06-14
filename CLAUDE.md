@@ -82,7 +82,7 @@ Not a chatbot. Not a copilot. Not a workflow tool.
 | Vite + React + Tailwind scaffolding | ✅ DONE — runs at localhost:5173 |
 | Weeks 3–25 backend (`apps/backend/`) | ✅ DONE — LangGraph, skills, RAG, code intel, memory, LangSmith, Teams bot, governance, eval harness, model router, QA/CI-CD/Jira skills, CrewAI crew, DSPy, Decision Intelligence, Agent Control Plane, SLM Classifier |
 
-**CURRENT STATE: Weeks 3–28 implementation complete; **Week 28 Stabilization Acceptance Pass ACCEPTED by Codex** (Round 12 closed). 726 deterministic pytest tests passing (38 in stabilization suite). Week 29 UNBLOCKED. Before Week 29 implementation begins, three architecture/product vision concepts have been added as documentation only (NOT yet implemented) — see Section 28: (1) Agent Instruction Engine / Subagent Prompting Layer, (2) Human-like Work Intelligence Layer, (3) Harness Engineering Platform Positioning. Week 29 implementation priority order (see Section 29 for full plan): AI Work Ledger v2 → ROI Dashboard → Dataset Export Prototype → Model Lifecycle Registry v1 → Fine-Tuning Prototype (prototype only, NOT production deployment). Week 29 implementation must keep the Section 28 future layers in mind so V2/V3 work slots cleanly on top.**
+**CURRENT STATE: Weeks 3–29 implementation complete. **Week 29 is COMPLETE — all five priorities (AI Work Ledger v2 → ROI Dashboard → Dataset Export Prototype → Model Lifecycle Registry v1 → Fine-Tuning Prototype) independently ACCEPTED by Codex.** 1021 backend pytest tests passing (1 skipped). No real model training, fine-tuning, or deployment occurred — the fine-tuning runner is an offline deterministic dry-run, no model was activated, and the production graph / model router were not modified. Section 28 carries documentation-only future layers — 28.1 Agent Instruction Engine / Subagent Prompting Layer, 28.2 Human-like Work Intelligence, 28.3 Harness Engineering Positioning, and 28.4 Agentic AI Roadmap (eight V2/V3 capabilities: delegated agent identity, A2A-ready envelopes, AG-UI event stream, persistent workspaces, branching experiments, security gateway, episode packages, agent-config compatibility) — vision only, NOT implemented. **Week 30 (final integration + surprise reveal + LinkedIn) has NOT started.** When Week 30 begins, keep the Section 28 future layers as clean attach points.**
 
 ---
 
@@ -1027,11 +1027,82 @@ The model is one component. The product is the system around the model — and t
 
 ---
 
+### 28.4 — Agentic AI Roadmap: Future Capability Tracking (V2 / V3 — DOCUMENTATION ONLY)
+
+**The vision**: eight capabilities drawn from the latest agentic-AI direction (delegated agent identity, A2A envelopes, agent-UI event streams, persistent workspaces, branching experiments, a security gateway, episode packages, and agent-config compatibility). These are **roadmap notes only** — none are implemented in V1, and **none are to be built during Week 29**. They are recorded so that current design choices (Work Ledger v2, Model Lifecycle Registry, Fine-Tuning Prototype) leave clean attach points. Each maps onto an existing pillar or harness layer — they are clarifications of where ARIA evolves, not new pillars.
+
+| # | Future capability | Slots onto |
+|---|---|---|
+| 1 | Agent Identity & Delegated Authorization | § 28.1 Subagent Instruction Engine + Governance Harness (§ 26.1 L3) + Work Ledger (Pillar 16) |
+| 2 | A2A-Ready Agent Message Envelope | Pillar 22 (Marketplace) + A2A interop (tech stack) — MCP-first / A2A-ready |
+| 3 | AG-UI / Agent-UI Event Stream | § 26.2 Declarative Generative UI + § 26.8 Generative UI Canvas + Pillar 7 |
+| 4 | Persistent Agent Workspace | § 26.8 Generative UI Canvas + Memory Harness (§ 26.1 L5) |
+| 5 | Agent Branching / Experiment Paths | Evolution Harness (§ 26.1 L6) + Pillar 18 |
+| 6 | Agent Security Gateway | Governance Harness (§ 26.1 L3) + § 26.7 Safe Execution + Pillar 10 |
+| 7 | Episode Package / Trace-Based Evaluation | Evaluation Harness (§ 26.1 L4) + Work Ledger (Pillar 16) + Pillar 12 |
+| 8 | Agent Configuration Compatibility | Pillar 8 (Knowledge Vault) + Skill Registry + § 28.1 |
+
+**1 — Agent Identity & Delegated Authorization (V2)**
+- Every subagent call carries a typed identity/authorization envelope: `caller_agent_id`, `target_agent_id`, `human_owner`, `parent_task_id`, `workflow_id`, `correlation_id`, `allowed_context`, `forbidden_context`, `allowed_tools`, `forbidden_tools`, `risk_level`, `expiry_time`, `approval_requirement`, `audit_trace_id`.
+- Subagents inherit **only explicitly delegated** permissions — never the parent's full scope, never self-expanding (reinforces the § 28.1 governance rules).
+- Every agent-to-agent call is logged in the Work Ledger.
+- *Extends § 28.1's `SubagentBrief` with `caller_agent_id` / `target_agent_id` / `human_owner` / `expiry_time` / `audit_trace_id`. Work Ledger v2 already carries `correlation_id` + `actor`, so the ledger half of this needs no migration.*
+
+**2 — A2A-Ready Agent Message Envelope (V2)**
+- V1 stays **LangGraph-controlled internal orchestration** — no change.
+- V2 supports A2A-compatible envelopes **without becoming dependent on external A2A infrastructure** (interop optional, not a runtime dependency).
+- Locked stance: **ARIA is MCP-first for tools and A2A-ready for agent collaboration.**
+
+**3 — AG-UI / Agent-UI Event Stream (V2)**
+- The frontend consumes a structured event stream: `task_started`, `plan_created`, `approval_required`, `subagent_started`, `tool_called`, `artifact_created`, `progress_update`, `cost_update`, `error`, `completed`, `rollback_available`.
+- Enables live timelines, approval cards, workspaces, and rollback controls — the runtime surface of § 26.2 / § 26.8.
+
+**4 — Persistent Agent Workspace (V2/V3)**
+- Every major task eventually owns a workspace folder: task brief, plan, logs, artifacts, terminal outputs, approvals, evals, and rollback snapshots.
+- Useful for long-running projects (e.g. an AI Astrologer build for MyJyotish) where context must persist across many sessions.
+
+**5 — Agent Branching / Experiment Paths (V3)**
+- The Evolution Harness supports branching plans, prompts, models, and workflows.
+- Branches compared by **quality, cost, latency, safety, approval need, and silent-deviation risk**.
+- Promote the best branch; **always keep a rollback path** (consistent with the governed monitor → propose → sandbox → approve → canary → promote → rollback loop).
+
+**6 — Agent Security Gateway (V2)**
+- A centralized guardrail layer for: prompt-injection detection, tool-call risk scoring, output-leakage scanning, data-exfiltration checks, untrusted-context quarantine, and delegated-authorization enforcement.
+- Sits in front of the Tool Execution + Governance harnesses; complements § 26.7 Safe Execution (structural safety) with input/output threat screening.
+
+**7 — Episode Package / Trace-Based Evaluation (V2)**
+- Each serious ARIA run emits an auditable **episode package**: task brief, context used, tools used, model used, subagents used, artifacts, approvals, errors, verification, rollback proof, final outcome.
+- This is the unit of trace-based evaluation and audit — a superset of the Work Ledger correlation trail, packaged for replay/grading.
+
+**8 — Agent Configuration Compatibility (V2)**
+- Future ARIA understands repo-level config files (`AGENTS.md` / `CLAUDE.md` / `ARIA.md`) and converts them into context rules, skill-registry entries, subagent briefs, workflow rules, and evaluation constraints.
+- Makes ARIA portable across repos without bespoke wiring per project.
+
+**V1 / Week 29 alignment (non-negotiable)**:
+- **Do NOT implement any of the above now.** Current implementation remains **Week 29 Priority 4 — Model Lifecycle Registry v1**, then **Priority 5 — Fine-Tuning Prototype**.
+- When Week 29 choices come up, prefer designs that leave clean attach points (e.g. keep `correlation_id` / `actor` on every ledger event for items 1, 2, 7) — but do not pre-build the layers.
+
+**Cross-references**: § 28.1 (Subagent Instruction Engine), § 26.1 (seven harness layers), § 26.2 / § 26.8 (UI), § 26.7 (Safe Execution), § 14 (governed self-evolution), Pillars 8 / 10 / 12 / 16 / 18 / 22.
+
+---
+
 ## 29. WEEK 29 PLAN — AI WORK LEDGER + FINE-TUNING PROTOTYPE
 
-**Status**: planning. Week 28 stabilization is accepted; Week 29 is unblocked.
+**Status**: ✅ **COMPLETE — all five priorities independently ACCEPTED by Codex.** 1021 backend tests passing (1 skipped); no real training or deployment occurred; production graph / model router unchanged. **Week 30 has NOT started.**
 
-**Implementation order is fixed** by ROI-of-effort. Each item must reach the listed checkpoint before the next one starts — do NOT parallelize the first three.
+### Week 29 — Final Status (Accepted by Codex)
+
+| Priority | Deliverable | Status |
+|---|---|---|
+| 1 | AI Work Ledger v2 | ✅ Accepted |
+| 2 | ROI Dashboard | ✅ Accepted |
+| 3 | Dataset Export Prototype | ✅ Accepted |
+| 4 | Model Lifecycle Registry v1 | ✅ Accepted |
+| 5 | Fine-Tuning Prototype (offline dry-run — no real training/deploy) | ✅ Accepted |
+
+Codex final verdict: no remaining findings; fine-tuning tests 35 passed; full backend 1021 passed / 1 skipped; py-compile passed; registry + fine-tuning demos passed; no real training or deployment; `git diff --check` passed; test-deployment pollution absent; the DPO `chosen`-binding guard in `planner.py` accepted. **Week 29: COMPLETE.**
+
+**Implementation order is fixed** by ROI-of-effort. Each item must reach the listed checkpoint before the next one starts — do NOT parallelize the first three. *(Historical plan retained below for the record; all five priorities are now accepted per the Final Status table above.)*
 
 ### Priority 1 — AI Work Ledger v2 *(must complete first)*
 

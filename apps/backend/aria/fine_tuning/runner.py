@@ -54,7 +54,7 @@ from aria.fine_tuning.models import (
     TrainingStatus,
     utc_now,
 )
-from aria.fine_tuning.planner import FineTuningPlanner
+from aria.fine_tuning.planner import FineTuningPlanner, PlanProvenanceVerifier
 
 
 # ── Runner protocol + offline mock ────────────────────────────────────────────
@@ -187,11 +187,19 @@ class FineTuningPipeline:
         model_name: str = "pr_review_specialist",
         semantic_version: str = "0.1.0",
         base_model: Optional[str] = None,
+        provenance_verifier: Optional[PlanProvenanceVerifier] = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._registry = registry
         self._artifact_root = Path(artifact_root)
-        self._planner = planner if planner is not None else FineTuningPlanner(clock=clock)
+        # When the pipeline builds its own planner, it must forward the
+        # provenance verifier — otherwise the auto-built planner would fail
+        # closed on the ledger-backed provenance gate. A caller-supplied
+        # ``planner`` is used as-is (its own verifier is the caller's choice).
+        self._planner = (
+            planner if planner is not None
+            else FineTuningPlanner(clock=clock, provenance_verifier=provenance_verifier)
+        )
         self._runner = runner if runner is not None else OfflineMockRunner(artifact_root, clock=clock)
         self._candidate_evaluator = (
             candidate_evaluator if candidate_evaluator is not None
@@ -210,6 +218,14 @@ class FineTuningPipeline:
         *,
         dry_run: bool = True,
     ) -> PipelineResult:
+        # Capture the consumer's active model BEFORE doing anything. The
+        # prototype's safety invariant is that it leaves the active model
+        # exactly as it found it — NOT merely that "no model is active". A
+        # consumer may legitimately already have an active production model;
+        # the prototype must neither replace it nor activate its candidate.
+        active_before = self._registry.get_active_model(self._consumer)
+        before_id = active_before.model_id if active_before is not None else None
+
         manifest = self._planner.build_manifest(export_dir)
         plan = self._planner.plan(
             manifest,
@@ -234,12 +250,16 @@ class FineTuningPipeline:
             self._registry.request_approval(candidate.model_id)
             approval_requested = True
 
-        # Invariant: the prototype NEVER activates a candidate.
-        active = self._registry.get_active_model(self._consumer)
-        if active is not None:
+        # Invariant: the prototype NEVER changes the consumer's active model —
+        # it neither activates its candidate nor disturbs a pre-existing active
+        # model. Compare against the snapshot taken on entry, not against "no
+        # active model", so a consumer that already had one is handled correctly.
+        active_after = self._registry.get_active_model(self._consumer)
+        after_id = active_after.model_id if active_after is not None else None
+        if after_id != before_id:
             raise TrainingRunError(
-                "Invariant violated: a prototype candidate became active for "
-                f"consumer {self._consumer!r}."
+                "Invariant violated: the prototype changed the active model for "
+                f"consumer {self._consumer!r} (was {before_id!r}, now {after_id!r})."
             )
 
         final = self._registry.list_versions(self._consumer)

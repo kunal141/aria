@@ -796,7 +796,7 @@ def test_persistence_failure_blocks_rollback_without_state_change(tmp_path: Path
 # Item 9 — Typed Work Ledger Lifecycle Events
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_evolution_lifecycle_emits_ordered_typed_ledger_events():
+def test_evolution_lifecycle_emits_ordered_typed_ledger_events(tmp_path, monkeypatch):
     """
     The full success path (proposal → pipeline → approval → promotion) emits
     typed, ordered EvolutionLedgerEvents with matching correlation IDs.
@@ -804,7 +804,14 @@ def test_evolution_lifecycle_emits_ordered_typed_ledger_events():
     from aria.evolution.pipeline import ProposalPipeline
     from aria.evolution.store import InMemoryProposalStore
     from aria.evolution.models import EvolutionProposal, EvolutionType
+    from aria.evolution.update_manager import operations as ops
     from aria.work_ledger import EvolutionEventType, EvolutionLedgerEvent
+
+    # Confine all deployment-artifact writes to tmp_path so the full suite never
+    # pollutes apps/backend/deployments/ (Codex Finding 3). The pipeline reads
+    # ops.DEPLOYMENT_ROOT to build artifact paths; UpdateManager writes/confines
+    # promotion against its own deployment_root — both must be isolated.
+    monkeypatch.setattr(ops, "DEPLOYMENT_ROOT", tmp_path)
 
     proposal_store = InMemoryProposalStore()
     update_store = InMemoryUpdateStore()
@@ -830,7 +837,7 @@ def test_evolution_lifecycle_emits_ordered_typed_ledger_events():
         result = pipeline.run(proposal, current_version="1.0.0")
         assert result.succeeded, f"Pipeline failed: {result.blocked_reason}"
 
-    mgr = UpdateManager(store=update_store)
+    mgr = UpdateManager(store=update_store, deployment_root=tmp_path)
 
     # Approve the update — operations.py uses lazy import so aria.work_ledger patch is enough
     with patch("aria.work_ledger.log_evolution_event", side_effect=_cap):

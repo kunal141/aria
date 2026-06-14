@@ -59,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     artifact_root = workdir / "artifacts"
     store_path = workdir / "registry.jsonl"
     ledger_path = workdir / "ledger_v2.jsonl"
+    audit_outbox = workdir / "audit_outbox.jsonl"
 
     consumer = "pr_review_skill"
     writer = LedgerWriter(ledger_path)
@@ -68,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         authorized_approvers={"human:kunal"},
         artifact_root=artifact_root,
         writer=writer,
+        audit_outbox_path=audit_outbox,
         clock=utc_now,
     )
     evaluator = OfflineEvaluator()
@@ -147,6 +149,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n-- Work Ledger v2: {len(lifecycle_events)} model_lifecycle events emitted --")
     for e in lifecycle_events:
         print(f"  {e.model_version:8s}  {str(e.from_status):16s} -> {e.to_status}")
+    print(
+        f"\n-- Audit outbox: {len(registry.audit_failures)} emission failure(s) "
+        "(0 = every committed transition reached the Work Ledger) --"
+    )
 
     if not args.keep:
         shutil.rmtree(workdir, ignore_errors=True)

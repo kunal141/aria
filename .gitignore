@@ -27,6 +27,10 @@ update_releases.jsonl
 tool_audit.jsonl
 notifications.jsonl
 
+# Deployed-prompt artifacts written by UpdateManager.promote_canary at runtime
+# (DEPLOYMENT_ROOT default = apps/backend/deployments). Not source — regenerated.
+apps/backend/deployments/
+
 # Week script test artefacts (temp files created by demo scripts)
 _week*_test_*.json
 _week*_test_*.jsonl

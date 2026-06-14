@@ -580,6 +580,37 @@ canary deployment, and verified rollback. The marketplace is explicitly deferred
 
 ---
 
+## Week 29 — AI Work Ledger v2 → Fine-Tuning Prototype — COMPLETE (Accepted by Codex)
+
+**Date**: 2026-06-14
+**Status**: ✅ COMPLETE. All five priorities independently ACCEPTED by Codex. Week 30 not started.
+
+**Priorities (built in fixed ROI order, each accepted):**
+1. **AI Work Ledger v2** — schema-versioned, queryable JSONL ledger; every event carries `ledger_event_version`, `correlation_id`, `actor`, `risk_tier`, per-event token/cost/latency, `evaluation_score`, `outcome_label`. One-time v1 backfill for legacy records. Source of truth for ROI + dataset export.
+2. **ROI Dashboard** — frontend view over Work Ledger v2 (tasks by skill/week, approved-vs-rejected ratio, human time saved, cost spent, failure/rollback rate, evolution-loop activity), harness-engineering copy.
+3. **Dataset Export Prototype** — `(input, output)` SFT JSONL from `outcome_label=approved` events; `(prompt, chosen, rejected, correction)` DPO JSONL from rejected+corrected pairs; dedup by hash, quality filter, format validation. No training run.
+4. **Model Lifecycle Registry v1** — file-backed JSONL registry (model name + base version, training-dataset hash, holdout eval score, deployment endpoint, rollback pointer, active skills). Atomic flush, schema-validated, audit-logged to the Work Ledger.
+5. **Fine-Tuning Prototype** — offline deterministic **dry-run** LoRA planner/runner over the Priority-3 export. Proves the pipeline only: a candidate is registered + evaluated against a holdout; NO real training, NO model download, NO GPU, NO vLLM serving, NO model-router wire-up, NO activation. Active model stays NONE.
+
+**Security / provenance hardening (Codex rounds, all closed):**
+- Dataset provenance is ledger-backed and **content-bound**: a cited `OutcomeRecorded` / `CorrectionRecorded` event must record a `content_hash` equal to the canonical hash reconstructed from the exported row; hashless legacy events fail closed.
+- Structural identifiers (`task_id`, each `source_events` entry) are validated as non-empty strings — never `str()`-coerced.
+- **DPO `chosen` binding** (final finding): the planner requires `chosen == correction`, so the content-bound `correction` transitively authorises the exact preferred response DPO trains toward. Swapping only `chosen` is rejected.
+
+**Verified baseline (2026-06-14):**
+- `tests/test_week29_fine_tuning.py`: 35 passed
+- Full backend suite: 1021 passed, 1 skipped
+- `py_compile` (planner + tests): OK
+- Priority 4 + Priority 5 demos: clean — 0 audit-emission failures, no activation, no training/deployment, "Prototype only."
+- `git diff --check`: OK
+- Test deployment pollution absent — conftest `_isolate_deployment_root` + `_isolate_ledger_v2` autouse fixtures redirect all writes to tmp; previously-tracked runtime `deployments/prompts/*.txt` artifacts removed from version control and gitignored.
+
+**Codex final verdict**: no remaining findings; Week 29 Priorities 4 and 5 accepted; **Week 29 complete.**
+
+**Roadmap note**: CLAUDE.md § 28.4 (Agentic AI Roadmap — eight V2/V3 capabilities) added as documentation-only; not implemented.
+
+---
+
 ## Week 28 Stabilization — Round 2 Fixes (Closed by Round 3)
 
 **Date**: 2026-06-09

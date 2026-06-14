@@ -692,10 +692,20 @@ class ModelRegistry:
         """
         Durably record a ledger-emission failure. Never raises and never logs
         secrets — the failure envelope carries only the same non-confidential
-        lifecycle fields the ledger event itself would have, plus the error
-        text. If even the outbox write fails, that is escalated to CRITICAL but
-        still does not propagate (the committed state change must stand).
+        lifecycle fields the ledger event itself would have.
+
+        The exception MESSAGE is deliberately dropped: a writer that failed on a
+        credential-bearing value (e.g. a connection string or ``password=...``)
+        would otherwise echo that secret into the in-memory record, the JSONL
+        outbox, AND the logs. The ledger redaction boundary (``redact_freetext``)
+        masks API-key/token shapes but NOT passwords or connection strings, so a
+        partial redaction here would still leak. We therefore record only the
+        exception's CLASS NAME — a code identifier that cannot carry a secret —
+        across all three sinks. If even the outbox write fails, that is escalated
+        to CRITICAL (class name only) but still does not propagate (the committed
+        state change must stand).
         """
+        error_type = type(error).__name__
         failure = {
             "kind": "model_lifecycle_audit_failure",
             "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -710,12 +720,12 @@ class ModelRegistry:
             "approval_id": approval_id,
             "outcome": outcome,
             "status": status,
-            "error": f"{type(error).__name__}: {error}",
+            "error": error_type,
         }
         self._audit_failures.append(failure)
         logger.error(
             "Work Ledger emission failed for model %s (%s -> %s): %s",
-            record.model_id, from_status, to_status, failure["error"],
+            record.model_id, from_status, to_status, error_type,
         )
         if self._audit_outbox_path is None:
             return
@@ -726,7 +736,7 @@ class ModelRegistry:
         except Exception as outbox_exc:  # noqa: BLE001 — last-resort durability
             logger.critical(
                 "Could not persist audit-failure for model %s to outbox %s: %s",
-                record.model_id, self._audit_outbox_path, outbox_exc,
+                record.model_id, self._audit_outbox_path, type(outbox_exc).__name__,
             )
 
 

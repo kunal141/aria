@@ -43,7 +43,7 @@ from aria.training_data import (
     canonical_content_hash,
 )
 from aria.training_data.exporter import ExportConfig
-from aria.fine_tuning import FineTuningPipeline
+from aria.fine_tuning import AcceptAllPlanProvenance, FineTuningPipeline
 
 
 FIXED_TS = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
@@ -128,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     artifact_root = workdir / "artifacts"
     store_path    = workdir / "registry.jsonl"
     ledger_path   = workdir / "ledger_v2.jsonl"
+    audit_outbox  = workdir / "audit_outbox.jsonl"
     export_dir.mkdir(parents=True, exist_ok=True)
     artifact_root.mkdir(parents=True, exist_ok=True)
 
@@ -140,21 +141,27 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  ready_for_finetuning (production 50/skill bar): {report.ready_for_finetuning}")
     print("  (prototype proceeds on its own lower sufficiency bar; see note below)")
 
-    # 2. Registry wired to a Work Ledger v2 writer + artifact root.
+    # 2. Registry wired to a Work Ledger v2 writer + artifact root + a durable
+    #    audit outbox (any ledger-emission failure is appended there, never lost).
     registry = ModelRegistry(
         store=InMemoryModelStore(persist_path=store_path),
         known_consumers={CONSUMER},
         authorized_approvers={"human:kunal"},
         artifact_root=artifact_root,
         writer=LedgerWriter(ledger_path),
+        audit_outbox_path=audit_outbox,
         clock=utc_now,
     )
 
     # 3. Run the prototype pipeline (dry-run: no artifact written, no training).
+    #    AcceptAllPlanProvenance is the explicit offline bypass: these are
+    #    synthetic fixtures that are not in a real Work Ledger, so ledger-backed
+    #    provenance is intentionally opted out of — prototype-only, never prod.
     pipeline = FineTuningPipeline(
         registry,
         artifact_root=artifact_root,
         production_consumer=CONSUMER,
+        provenance_verifier=AcceptAllPlanProvenance(),
         clock=utc_now,
     )
     result = pipeline.run(export_dir, dry_run=True)
@@ -190,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  approval_requested : {result.approval_requested}")
     print(f"  provider           : {cand.provider.value}  (never served to prod)")
     print(f"  active model       : {active.model_id if active else 'NONE (correct - not activated)'}")
+    print(f"  audit-emission fails: {len(registry.audit_failures)} (0 = every lifecycle event reached the ledger)")
 
     lifecycle_events = [
         e for e in LedgerReader(v2_path=ledger_path).v2_events()

@@ -11,6 +11,8 @@ consumer; typed ledger lifecycle events; dataset provenance; version comparison.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +25,8 @@ from aria.ledger.writer import LedgerWriter
 from aria.model_registry import (
     ApprovalRequiredError,
     ArtifactHashMismatchError,
+    ArtifactIntegrityError,
+    ArtifactMissingError,
     ArtifactPathError,
     ConcurrentActivationError,
     DuplicateModelConflict,
@@ -38,6 +42,7 @@ from aria.model_registry import (
     ModelType,
     MultipleActiveModelsError,
     OfflineEvaluator,
+    RegistryCorruptionError,
     RegistryPersistenceError,
     SelfApprovalError,
     UnknownConsumerError,
@@ -440,3 +445,215 @@ def _report(model_id: str, metrics: dict) -> EvaluationReport:
         metrics=metrics,
         created_at=FIXED_TS,
     )
+
+
+# ── Codex re-audit regressions ─────────────────────────────────────────────────
+#
+# Each test locks in one finding the prior green suite missed. They are written
+# to FAIL against the pre-fix code and PASS only with the fix in place.
+
+
+# F1 — rollback eligibility: a record that never passed the activation gate must
+# NOT be back-doored to ACTIVE via rollback.
+
+
+def test_f1_rollback_to_approved_but_never_activated_rejected(tmp_path):
+    """A target that was approved but never activated is not a rollback target."""
+    reg, _ = _registry(tmp_path)
+    rec = _record("m1", version="1.0.0")
+    _to_approved(reg, rec)            # approved, status=approved, activated_at=None
+    assert reg._store.get("m1").status == ModelStatus.approved
+    with pytest.raises(ModelStateError):
+        reg.rollback_model(CONSUMER, "m1")
+    # The target was NOT silently promoted to active.
+    assert reg._store.get("m1").status == ModelStatus.approved
+    assert reg.get_active_model(CONSUMER) is None
+
+
+def test_f1_rollback_to_registered_target_rejected(tmp_path):
+    """A merely-registered target (never vetted) is not a rollback target."""
+    reg, _ = _registry(tmp_path)
+    reg.register_model(_record("m1"))
+    with pytest.raises(ModelStateError):
+        reg.rollback_model(CONSUMER, "m1")
+    assert reg._store.get("m1").status == ModelStatus.registered
+
+
+# F2 — a corrupt persisted registry refuses to start (fail closed), rather than
+# booting on partial/ambiguous governance state.
+
+
+def test_f2_corrupt_registry_file_refuses_to_start(tmp_path):
+    persist = tmp_path / "registry.jsonl"
+    persist.write_text("this is not valid json\n", encoding="utf-8")
+    with pytest.raises(RegistryCorruptionError):
+        InMemoryModelStore(persist_path=persist)
+
+
+def test_f2_duplicate_model_id_in_file_refuses_to_start(tmp_path):
+    persist = tmp_path / "registry.jsonl"
+    line = _record("m1").model_dump_json()
+    persist.write_text(line + "\n" + line + "\n", encoding="utf-8")  # same id twice
+    with pytest.raises(RegistryCorruptionError):
+        InMemoryModelStore(persist_path=persist)
+
+
+# F3 — artifact verification fails closed: a declared-but-missing artifact, a
+# path with no hash, a hash with no path, or a path with no configured root are
+# all rejected (the prior version returned early on a missing file).
+
+
+def test_f3_declared_artifact_missing_rejected(tmp_path):
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    ghost = artifact_root / "never_written.bin"   # confined but absent
+    reg, _ = _registry(tmp_path, artifact_root=artifact_root)
+    with pytest.raises(ArtifactMissingError):
+        reg.register_model(
+            _record("m1", artifact_path=str(ghost), artifact_hash="e" * 64)
+        )
+
+
+def test_f3_artifact_path_without_hash_rejected(tmp_path):
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    art = artifact_root / "adapter.bin"
+    art.write_text("REAL-BYTES", encoding="utf-8")
+    reg, _ = _registry(tmp_path, artifact_root=artifact_root)
+    with pytest.raises(ArtifactIntegrityError):
+        reg.register_model(_record("m1", artifact_path=str(art)))  # no hash
+
+
+def test_f3_artifact_hash_without_path_rejected(tmp_path):
+    reg, _ = _registry(tmp_path, artifact_root=tmp_path / "artifacts")
+    with pytest.raises(ArtifactIntegrityError):
+        reg.register_model(_record("m1", artifact_hash="e" * 64))  # no path
+
+
+def test_f3_artifact_path_without_root_rejected(tmp_path):
+    art = tmp_path / "adapter.bin"
+    art.write_text("REAL-BYTES", encoding="utf-8")
+    digest = hashlib.sha256(art.read_bytes()).hexdigest()
+    reg, _ = _registry(tmp_path)  # no artifact_root configured
+    with pytest.raises(ArtifactPathError):
+        reg.register_model(_record("m1", artifact_path=str(art), artifact_hash=digest))
+
+
+# F4 — evaluation evidence is strict: EvaluationReport rejects non-finite/bool
+# metrics, and lifecycle advancement re-validates (no model_copy bypass).
+
+
+@pytest.mark.parametrize("bad_metrics", [
+    {"accuracy": float("nan")},
+    {"accuracy": float("inf")},
+    {"accuracy": float("-inf")},
+    {"accuracy": True},     # bool is not a number
+])
+def test_f4a_evaluation_report_rejects_non_finite_metrics(bad_metrics):
+    with pytest.raises(ValidationError):
+        _report("m1", bad_metrics)
+
+
+def test_f4b_apply_revalidates_and_rejects_non_finite(tmp_path):
+    """
+    Lifecycle advancement reconstructs via model_validate, so a non-finite
+    metric cannot be smuggled in (Pydantic's model_copy(update=) would bypass
+    field validators — that path is closed).
+    """
+    rec = _record("m1")
+    with pytest.raises(ValidationError):
+        ModelRegistry._apply(rec, evaluation_metrics={"accuracy": float("inf")})
+
+
+# F7 — a Work-Ledger emission failure never silently disappears: the committed
+# transition stands, and the failure is durably appended to the audit outbox
+# (carrying only non-confidential lifecycle fields).
+
+
+def test_f7_ledger_emission_failure_recorded_in_outbox(tmp_path):
+    outbox = tmp_path / "audit_outbox.jsonl"
+    store = InMemoryModelStore(persist_path=tmp_path / "registry.jsonl")
+
+    class _BoomWriter:
+        def append(self, event) -> None:
+            raise OSError("ledger unavailable")
+
+    reg = ModelRegistry(
+        store=store,
+        known_consumers={CONSUMER},
+        authorized_approvers={"human:kunal"},
+        writer=_BoomWriter(),
+        audit_outbox_path=outbox,
+        clock=_fixed_clock,
+    )
+
+    # The committed transition succeeds even though the ledger write fails.
+    reg.register_model(_record("m1"))
+    assert store.get("m1") is not None
+
+    # The failure is recorded in memory AND durably on disk — never dropped.
+    assert len(reg.audit_failures) == 1
+    assert outbox.exists()
+    lines = [l for l in outbox.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 1
+    failure = json.loads(lines[0])
+    assert failure["model_id"] == "m1"
+    assert failure["to_status"] == "registered"
+    assert "OSError" in failure["error"]
+    # The audit line carries lifecycle fields only — no artifact/secret payload.
+    assert {"model_id", "to_status", "from_status", "production_consumer"} <= set(failure)
+    assert "artifact_path" not in failure
+    assert "artifact_hash" not in failure
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "Bearer sk-abc123SECRETtoken4567890",                       # bearer token
+        "sk-ant-api03-DEADBEEFdeadbeefSECRETkey00",                 # API key
+        "password=SuperSecretP@ssw0rd",                             # plain password
+        "postgres://admin:S3cretDbPass@db.internal:5432/prod",      # connection string
+    ],
+)
+def test_f7_audit_failure_never_leaks_exception_secret(tmp_path, caplog, secret):
+    """
+    A writer that fails on a credential-bearing value must NOT echo that secret
+    into any of the three audit sinks: the in-memory ``audit_failures`` record,
+    the durable JSONL outbox, or the logs. Only the exception CLASS NAME is
+    retained. Covers token / API-key shapes (which ``redact_freetext`` knows)
+    AND password / connection-string shapes (which it does NOT) — proving the
+    fix drops the message entirely rather than relying on partial redaction.
+    """
+    outbox = tmp_path / "audit_outbox.jsonl"
+    store = InMemoryModelStore(persist_path=tmp_path / "registry.jsonl")
+
+    class _SecretLeakingWriter:
+        def append(self, event) -> None:
+            raise RuntimeError(f"ledger connect failed: {secret}")
+
+    reg = ModelRegistry(
+        store=store,
+        known_consumers={CONSUMER},
+        authorized_approvers={"human:kunal"},
+        writer=_SecretLeakingWriter(),
+        audit_outbox_path=outbox,
+        clock=_fixed_clock,
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        reg.register_model(_record("m1"))
+
+    # The committed transition stands regardless of the emission failure.
+    assert store.get("m1") is not None
+
+    # Sink 1 — in-memory record: class name retained, secret absent everywhere.
+    failures = reg.audit_failures
+    assert len(failures) == 1
+    assert failures[0]["error"] == "RuntimeError"
+    assert secret not in json.dumps(failures, ensure_ascii=False)
+
+    # Sink 2 — durable JSONL outbox.
+    assert secret not in outbox.read_text(encoding="utf-8")
+
+    # Sink 3 — logs.
+    assert secret not in caplog.text
