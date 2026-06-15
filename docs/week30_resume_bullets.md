@@ -3,7 +3,7 @@
 Portfolio bullets grounded in what is actually built and tested. Each is defensible against the
 Truth & Claim Audit. Pick per role; do not stack claims that imply deployment.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -11,14 +11,16 @@ Truth & Claim Audit. Pick per role; do not stack claims that imply deployment.
 
 - Designed and built **ARIA**, a governed AI-employee platform on **LangGraph** using
   **Harness Engineering** — seven layers (runtime, tools, governance, evaluation, memory,
-  evolution, workflow) around the LLM — with **1021 automated tests passing** and a
+  evolution, workflow) around the LLM — with **1027 automated tests passing** and a
   reproducible **offline** end-to-end demo.
 
 ## Engineering / platform bullets
 
 - Built a **typed Work Ledger v2** (15 discriminated Pydantic event types, frozen contracts)
-  that records every task/action and computes **ROI directly** — completion, approval rate,
-  failure rate, cost-per-task, corrections, and model-usage breakdown.
+  that records governed task/action events as typed records and computes **ROI directly** —
+  completion, approval rate, failure rate, cost-per-task, corrections, and model-usage
+  breakdown. *(Live graph auto-emits the terminal event per task today; the full per-event
+  taxonomy is exercised by the demo/tests — per-event live emission is a documented V2 item.)*
 - Implemented a **fail-closed evidence gate**: KPI and CI/CD responses are *withheld* when
   evidence is insufficient, preventing confident-but-unsupported answers.
 - Implemented **governance with action tiers (T1–T3 live, T4 behind explicit approval)** and a
@@ -47,7 +49,7 @@ Truth & Claim Audit. Pick per role; do not stack claims that imply deployment.
 ---
 
 ## Quantified claims you may use (all verifiable)
-- `1021 tests passing, 1 skipped`
+- `1027 tests passing, 1 skipped`
 - `15` typed Work Ledger event types
 - `7` harness layers; `24` capability pillars (with honest V1/V2/V3 boundary)
 - Offline demo: one command, deterministic ROI snapshot
@@ -57,3 +59,5 @@ Truth & Claim Audit. Pick per role; do not stack claims that imply deployment.
 - ❌ "fully autonomous AI employee"
 - ❌ "live Jira/Teams automation in production"
 - ❌ "all 24 pillars operational"
+- ❌ "the live graph records every action as a typed event" — it auto-emits the **terminal**
+  event per task today; the full event taxonomy is shown via seeded demo data + tests (V2 work)

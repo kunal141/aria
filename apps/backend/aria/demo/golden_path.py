@@ -17,8 +17,10 @@ What it does (all local, all offline):
   1. Forces a key-gated provider with NO key, so every skill takes its
      deterministic ``has_llm() is False`` mock path. A guard aborts the run
      if any provider key is still visible — a paid call must be impossible.
-  2. Isolates the Work Ledger (v2 + legacy) into a throwaway temp directory,
-     so the demo never touches the real gitignored runtime ledgers.
+  2. Isolates EVERY runtime side-effect sink the graph can write — the Work
+     Ledger (v2 + legacy), the notification log, and the tool-audit log —
+     into a throwaway temp directory, and restores the repointed module
+     globals on exit, so the run leaves the repo byte-for-byte unchanged.
   3. LIVE: invokes the real ``aria_graph`` on four representative requests
      (PR review, KPI, CI/CD, Jira). This exercises real intake -> keyword
      routing -> real skill (mock output) -> evidence gate -> respond, and
@@ -337,11 +339,25 @@ def main(argv=None) -> int:
     writer = LedgerWriter(v2_path)
     configure_default_writer(writer)
 
-    # Redirect the legacy log_task / evolution writers off the real gitignored
-    # runtime files so the demo is fully self-contained.
+    # Redirect EVERY runtime side-effect sink a graph run can write off the real
+    # gitignored files and into the temp dir, so a live run leaves the repo
+    # byte-for-byte unchanged. These are module-level constants read at call
+    # time, so reassigning them is sufficient. Originals are saved and restored
+    # in the finally block below (the demo must not pollute in-process state).
     import aria.work_ledger as wl
+    import aria.notifications.notifier as notifier
+    import aria.security.audit_log as audit_log
+
+    _saved_globals = {
+        (wl, "LEDGER_FILE"): wl.LEDGER_FILE,
+        (wl, "EVOLUTION_EVENTS_FILE"): wl.EVOLUTION_EVENTS_FILE,
+        (notifier, "_LOG_PATH"): notifier._LOG_PATH,
+        (audit_log, "_AUDIT_FILE"): audit_log._AUDIT_FILE,
+    }
     wl.LEDGER_FILE = legacy_task_path
     wl.EVOLUTION_EVENTS_FILE = legacy_evo_path
+    notifier._LOG_PATH = tmp / "notifications.jsonl"
+    audit_log._AUDIT_FILE = str(tmp / "tool_audit.jsonl")
 
     print(_BAR)
     print("ARIA — GOLDEN PATH (Week 30 Launch Readiness)")
@@ -355,6 +371,8 @@ def main(argv=None) -> int:
         _report_roi(v2_path, legacy_task_path, legacy_evo_path)
     finally:
         reset_default_writer()
+        for (mod, attr), original in _saved_globals.items():
+            setattr(mod, attr, original)
         if args.keep:
             print(f"\n[--keep] temp ledger retained at: {tmp}")
         else:

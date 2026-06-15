@@ -3,7 +3,7 @@
 Goal: anyone can clone the repo and reproduce the golden demo with **commands that
 actually work from a clean setup** — no paid API, no hidden state.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -40,7 +40,7 @@ cp .env.example .env     # then add ANTHROPIC_API_KEY=... if you want online ski
 cd apps/backend
 uv run python -m pytest -q
 ```
-**Expected:** `1021 passed, 1 skipped` (3 benign deprecation warnings). Runtime ≈ 15s.
+**Expected:** `1027 passed, 1 skipped` (benign deprecation warnings only). Runtime ≈ 20s.
 
 ---
 
@@ -69,13 +69,16 @@ uv run python -m aria.demo.golden_path --keep
 | uv present | `uv --version` | prints a version |
 | deps installed | `uv run python -c "import langgraph, pydantic, fastapi"` | no error |
 | offline guard works | run the demo with a bogus key: `ANTHROPIC_API_KEY=x uv run python -m aria.demo.golden_path` | still offline — the script strips the key; mock path taken |
-| full suite | `uv run python -m pytest -q` | `1021 passed, 1 skipped` |
+| full suite | `uv run python -m pytest -q` | `1027 passed, 1 skipped` |
 
 ---
 
 ## 5. Demo state & how to reset it
 
-The golden demo is **stateless** — it writes only to a temp directory that it deletes on exit.
+The golden demo is **stateless** — it isolates every runtime sink (ledger + notification +
+tool-audit logs) into a temp directory that it deletes on exit, and restores the repointed
+module globals afterwards, so a run leaves the repo byte-for-byte unchanged. A regression test
+(`tests/test_week30_golden_demo.py::test_demo_does_not_mutate_runtime_files`) asserts this.
 There is **nothing to reset** for the primary demo.
 
 If you ran other tools that write the real runtime ledgers, those files are **gitignored**

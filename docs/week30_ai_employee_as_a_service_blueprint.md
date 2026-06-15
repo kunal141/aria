@@ -5,7 +5,7 @@ Forward-looking **blueprint** for how the platform could become a multi-tenant s
 none of it is to be implemented as part of Week 30. Recorded so today's design leaves clean
 attach points.
 
-**Status:** Awaiting Codex Launch-Readiness Audit (as a vision doc, not an implemented system).
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete. (This remains a V3 vision doc, not an implemented system.)
 
 ---
 

@@ -3,7 +3,7 @@
 How to describe ARIA — to leadership, in interviews, and (after approval) publicly. Every line
 here is consistent with the Truth & Claim Audit. No exaggeration.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -59,7 +59,7 @@ roadmap legible instead of hidden.
 - **It refuses to guess:** the evidence gate withholds unsupported KPI/CI-CD answers, live.
 - **It measures itself:** ROI (completion, approval rate, failure rate, cost/task, corrections)
   computed directly from the Work Ledger.
-- **It is tested:** `1021 passed, 1 skipped`.
+- **It is tested:** `1027 passed, 1 skipped`.
 - **It is honest about limits:** fine-tuning is an offline prototype; nothing is deployed.
 
 ---

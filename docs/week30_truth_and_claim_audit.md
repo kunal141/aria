@@ -5,10 +5,10 @@ against what the code and the accepted tests actually prove. This document is th
 honesty gate for the launch package. If a claim is not here, or is softer here than
 elsewhere, **this document wins.**
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 **Baseline of record (verified 2026-06-14):**
-- Backend test suite: **1021 passed, 1 skipped** (`cd apps/backend && uv run python -m pytest`).
+- Backend test suite: **1027 passed, 1 skipped** (`cd apps/backend && uv run python -m pytest`).
 - HEAD `6d279b1` (docs) ← `9590750` (Week 29 feature work, Codex-accepted).
 - Golden demo runs fully offline with no paid API call: `cd apps/backend && uv run python -m aria.demo.golden_path`.
 
@@ -114,7 +114,7 @@ These phrasings are **not supported** and must not appear in any demo, slide, RE
 
 ## 4. What a viewer can verify themselves
 
-1. `cd apps/backend && uv run python -m pytest` → **1021 passed, 1 skipped**.
+1. `cd apps/backend && uv run python -m pytest` → **1027 passed, 1 skipped**.
 2. `cd apps/backend && uv run python -m aria.demo.golden_path` → end-to-end offline flow, ending in the printed line: *"No paid API call, no network call, no model training, and no deployment occurred."*
 3. `uv run python -m aria.model_registry.demo` / `aria.fine_tuning.demo` / `aria.training_data.demo` → each ends with a "Prototype only…" boundary line; the fine-tuning demo shows `active model: NONE`.
 

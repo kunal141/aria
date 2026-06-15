@@ -4,7 +4,7 @@ Notes for drawing the diagrams used in the reveal deck and README. These describ
 draw**; they are not a new architecture. Source of truth: `docs/architecture.md` and §26.1 of
 `CLAUDE.md` (seven harness layers).
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 

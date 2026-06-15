@@ -3,16 +3,21 @@
 A consolidated, honest view of how ARIA is built as of the Week 30 launch-readiness audit. This
 summarizes; the canonical detail lives in `docs/architecture.md` and `CLAUDE.md` §26.1.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
 ## One-sentence architecture
 
 ARIA is a **LangGraph state machine** whose nodes call **typed, Pydantic-contracted skills**,
-governed by **action tiers + a fail-closed evidence gate**, with every task and action recorded
-in a **typed Work Ledger** that computes ROI — i.e. a **Harness Engineering** system where the
+governed by **action tiers + a fail-closed evidence gate**, with each task recorded in a
+**typed Work Ledger** that computes ROI — i.e. a **Harness Engineering** system where the
 model is one swappable component.
+
+> **Ledger emission scope (honest).** The live production graph auto-emits the **terminal**
+> event per task today (`Responded`/`Failed`). The full per-event taxonomy (routed,
+> skill-invoked, approval, cost, model-used, rollback) is exercised by the demo's **seeded**
+> lifecycle and the **test suite** — it is not yet auto-emitted end-to-end by the graph.
 
 ## The request lifecycle (what actually runs)
 
@@ -77,7 +82,7 @@ AaS · autonomous self-modification.
 
 ## Verification surface
 
-- Tests: `1021 passed, 1 skipped`.
+- Tests: `1027 passed, 1 skipped`.
 - Demo: `cd apps/backend && uv run python -m aria.demo.golden_path` (offline, deterministic).
 
 ---

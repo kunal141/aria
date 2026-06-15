@@ -3,7 +3,7 @@
 The single page a reviewer (or auditor) reads to confirm what is real. Every row is verifiable
 from this repo. No claim here exceeds the Truth & Claim Audit.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -14,13 +14,13 @@ from this repo. No claim here exceeds the Truth & Claim Audit.
 | 27 | Evolution Intelligence + RAPTOR (governed self-evolution loop) | Accepted | `3812387`, `8a6e7af` |
 | 28 | Governed Self-Improvement & Update Manager | Accepted | `143d30e`, `136e8c0`, `ddcb192` |
 | 29 | Work Ledger v2 → ROI → Dataset Export → Model Registry v1 → Fine-Tune Prototype | Accepted | `9691c79`, `9590750`, `6d279b1` |
-| 30 | Launch Readiness (this package) | **Awaiting Codex audit** | `253e3a7` (+ this docs batch, pending commit) |
+| 30 | Launch Readiness (this package) | **Accepted (2026-06-15)** | `253e3a7`, `ae10aea` (docs) + round-1/round-2 findings-fix batch (golden-demo no-pollution fix, demo tests, temp-dir-leak fix, wording + status corrections) |
 
 ## 2. Test + build proof
 
 | Check | Result |
 |---|---|
-| Backend pytest | `1021 passed, 1 skipped` |
+| Backend pytest | `1027 passed, 1 skipped` |
 | Run command | `cd apps/backend && uv run python -m pytest` |
 | py-compile (Week 29 modules) | passed (per Week 29 acceptance) |
 | `git diff --check` | clean (no whitespace/conflict errors) |
@@ -65,8 +65,10 @@ All run from `apps/backend`. The golden path prints a deterministic ROI snapshot
 
 ## 7. Codex acceptance
 
-- Week 30 is **not** complete by self-declaration. It is complete only when **Codex independently
-  accepts** the launch-readiness package. Until then: **Awaiting Codex Launch-Readiness Audit.**
+- Week 30 was **not** complete by self-declaration — only by independent review. **Codex
+  independently ACCEPTED** the launch-readiness package on **2026-06-15** (round-3 verdict:
+  Accepted; no remaining findings; focused demo suite 6 passed; `%TEMP%\aria_golden_*` 0/0;
+  `git diff --check` passed; previous full baseline 1027 passed / 1 skipped). **Week 30 complete.**
 
 ---
 

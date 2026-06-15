@@ -7,14 +7,17 @@ cd apps/backend
 uv run python -m aria.demo.golden_path
 ```
 
-This is the canonical demo for the reveal. It walks the entire ARIA loop —
-**request → routing → skill → evidence gate → artifact → Work Ledger v2 → ROI metrics** —
-including the **approval path**, the **failure path**, and a **rollback/evolution proof**,
-with no network call and no API key. It ends by printing, verbatim:
+This is the canonical demo for the reveal. **Stage 1 runs the live loop** —
+**request → routing → skill → evidence gate → artifact → terminal Work Ledger event** — with
+no network call and no API key. The live graph emits only the **terminal** event per task
+today, so **Stage 2 seeds** a representative governed lifecycle (the **approval path**, the
+**failure path**, and a **rollback/evolution proof**) using the real typed v2 event classes,
+and **Stage 3** aggregates live + seeded events into the ROI snapshot. It ends by printing,
+verbatim:
 
 > *Prototype / demonstration only. No paid API call, no network call, no model training, and no deployment occurred during this run.*
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -23,9 +26,12 @@ with no network call and no API key. It ends by printing, verbatim:
 The script forces a key-gated provider (`anthropic`), imports config so `.env` loads,
 then **strips every provider key** from the environment. `has_llm()` reads the environment
 live, returns `False`, and every skill takes its deterministic **mock** path. A guard
-**aborts the run** if any provider key is still visible. The Work Ledger (v2 + legacy) is
-redirected into a temporary directory that is deleted on exit, so the demo never touches the
-real gitignored runtime ledgers. See [golden_path.py](../apps/backend/aria/demo/golden_path.py).
+**aborts the run** if any provider key is still visible. **Every runtime side-effect sink the
+graph can write** — the Work Ledger (v2 + legacy), the notification log, and the tool-audit
+log — is redirected into a temporary directory that is deleted on exit, and the repointed
+module globals are restored afterwards, so a live run leaves the repo **byte-for-byte
+unchanged** (a regression test asserts this). See
+[golden_path.py](../apps/backend/aria/demo/golden_path.py).
 
 ---
 
@@ -98,7 +104,7 @@ avg_time_to_resolution_ms: 8000.0
 | Tool execution | skill mock outputs + the Jira T4 approval gate |
 | Governance | evidence-gate withholding; approval granted vs rejected; action tiers |
 | Evaluation | (referenced) eval harness scores live behind `evaluation_score` |
-| Memory | Work Ledger v2 — every event recorded and queryable |
+| Memory | Work Ledger v2 — typed, queryable events (terminal event live per task; full taxonomy seeded/tested) |
 | Evolution | the rollback task + model-lifecycle rollback event |
 | Subagent/workflow | roadmap — `correlation_id`/`actor` already on every event for clean attach |
 

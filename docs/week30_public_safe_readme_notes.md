@@ -3,7 +3,7 @@
 Guidance for a **public** README, should employer/IP approval be granted. This is **notes**,
 not the published README. Until approval, ARIA stays internal (see the Public-Safety Audit).
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -16,7 +16,7 @@ not the published README. Until approval, ARIA stays internal (see the Public-Sa
   governance, evaluation, workflows, Work Ledger, ROI measurement, and safe execution around
   the model.*
 - It runs an offline, reproducible demo: `cd apps/backend && uv run python -m aria.demo.golden_path`.
-- Test suite: `1021 passed, 1 skipped`.
+- Test suite: `1027 passed, 1 skipped`.
 
 ## What a public README must NOT say
 - ❌ "All 24 pillars functional" · ❌ "fully autonomous" · ❌ "operational self-evolution"

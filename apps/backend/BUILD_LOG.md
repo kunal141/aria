@@ -583,7 +583,7 @@ canary deployment, and verified rollback. The marketplace is explicitly deferred
 ## Week 29 — AI Work Ledger v2 → Fine-Tuning Prototype — COMPLETE (Accepted by Codex)
 
 **Date**: 2026-06-14
-**Status**: ✅ COMPLETE. All five priorities independently ACCEPTED by Codex. Week 30 not started.
+**Status**: ✅ COMPLETE. All five priorities independently ACCEPTED by Codex. (Week 30 Launch Readiness is now **COMPLETE — ACCEPTED by Codex (2026-06-15)** — see the root `BUILD_LOG.md` Week 30 entry.)
 
 **Priorities (built in fixed ROI order, each accepted):**
 1. **AI Work Ledger v2** — schema-versioned, queryable JSONL ledger; every event carries `ledger_event_version`, `correlation_id`, `actor`, `risk_tier`, per-event token/cost/latency, `evaluation_score`, `outcome_label`. One-time v1 backfill for legacy records. Source of truth for ROI + dataset export.

@@ -4,7 +4,7 @@ Screenshots to capture for the deck, README, and LinkedIn (pending publication a
 Each entry says **what to capture**, **how to produce it**, and **the honesty caption** to
 use so an image never implies more than is true.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 Save images to `docs/demos/` as `week_30_<name>.png`.
 
 ---
@@ -20,7 +20,7 @@ Save images to `docs/demos/` as `week_30_<name>.png`.
 | 7 | **Evolution / canary / rollback** | `aria.model_registry.demo` rollback step (or golden Stage 2 rollback) | "Governed rollback path always retained." |
 | 8 | **Model Lifecycle Registry** | `aria.model_registry.demo` registry listing | "Registry v1: version, dataset hash, rollback pointer." |
 | 9 | **Fine-Tuning Prototype dry-run** | `uv run python -m aria.fine_tuning.demo` (shows `active model: NONE`) | "Offline dry-run only — no model trained or deployed." |
-| 10 | **Test suite green** | `uv run python -m pytest -q` (last line) | "1021 passed, 1 skipped." |
+| 10 | **Test suite green** | `uv run python -m pytest -q` (last line) | "1027 passed, 1 skipped." |
 | 11 | **Teams/voice surface** (optional) | `ARIAVoice.jsx` UI / Teams card render | "Identity surface exists; live deployment needs credentials (V2)." |
 
 ---

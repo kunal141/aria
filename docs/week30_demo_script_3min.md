@@ -3,7 +3,7 @@
 A tight, honest walkthrough for the reveal. Every claim here is backed by the Truth & Claim
 Audit. Nothing is exaggerated. Total spoken time ≈ 3 minutes.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -29,8 +29,12 @@ As it runs, narrate the three stages:
 - **"Watch governance refuse to guess."** Point at the **KPI** and **CI/CD** lines:
   `[RESPONSE WITHHELD — UNSUPPORTED CLAIMS]`. "The evidence gate is fail-closed. When ARIA
   can't cite evidence, it refuses to answer — and it still files a proactive CI/CD alert."
-- **"Every action is recorded."** Point at Stage 2: approval granted, approval rejected, a
-  failure, and a **rollback** — all typed, governed events.
+- **"The governed lifecycle, in typed events."** Point at Stage 2 and say plainly that this is
+  **seeded demonstration data**: the live graph today emits only the **terminal** event
+  (`Responded`/`Failed`), so the demo *seeds* a representative governed lifecycle — approval
+  granted, approval rejected, a failure, and a **rollback** — using the real typed v2 event
+  classes. The point is that the ledger *can* record and the metrics *do* count the full
+  taxonomy; per-event emission from the live graph is a documented Partial (V2 work).
 
 ### 1:30–2:20 — The ROI it produces
 
@@ -53,7 +57,7 @@ Be explicit about boundaries (builds trust):
 
 > "To be clear: no model was fine-tuned for this, nothing is deployed, there's no vLLM
 > serving, and the Jira/Teams writes are mocks. What you saw is real and reproducible —
-> `1021 tests pass` and you can run that exact command yourself."
+> `1027 tests pass` and you can run that exact command yourself."
 
 ### 2:50–3:00 — Close
 
@@ -64,8 +68,10 @@ Be explicit about boundaries (builds trust):
 
 ## If asked "is it autonomous?"
 
-> "No — deliberately. It proposes, a human approves, then it acts. The rejected-approval and
-> rollback you just saw are the product working as designed."
+> "No — deliberately. It proposes, a human approves, then it acts. The rejected approval and
+> rollback in that ledger snapshot are **seeded demonstration events**, not a live execution.
+> For an **executed** governed rollback, run `aria.model_registry.demo` (register → approve →
+> activate → rollback) — that's the real thing working as designed."
 
 ## If asked "did it just call an API?"
 

@@ -3,7 +3,7 @@
 Scan of the repository for anything that must not be published without review. This audit
 reflects **actual scan results** (run 2026-06-14 against the tracked tree), not assertions.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 **Headline:** No live secrets found in tracked files. Two awareness items below require a
 decision before any **public** push. **Do not publish publicly until employer/IP approval is
 confirmed** (company context is pervasive — see item C).

@@ -3,7 +3,7 @@
 Audience: engineering leadership + the manager (Yukti context). Tone: confident, measured,
 zero exaggeration. ~10 slides. Every slide maps to evidence in the Truth & Claim Audit.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -29,12 +29,17 @@ Run `uv run python -m aria.demo.golden_path`. Narrate per
 [week30_demo_script_3min.md](week30_demo_script_3min.md). Key beats:
 - real routing → real skills → artifacts
 - **evidence gate withholds** unsupported KPI/CI-CD claims (governance you can see)
-- approval granted / rejected / failure / **rollback** — all logged
+- approval granted / rejected / failure / **rollback** — **seeded** typed events (say so):
+  the live graph emits only the terminal event today, so Stage 2 *seeds* the governed
+  lifecycle with the real v2 event classes to show what the ledger records and the metrics count
 
 ### Slide 5 — The Work Ledger & ROI
-- Every task and action is a typed, queryable event.
+- The ledger is 15 typed, queryable event classes; ROI is computed directly off them.
+- **Honest scope:** the production graph auto-emits the terminal event per task today; the full
+  per-event taxonomy is exercised by the demo's seeded lifecycle, tests, and the ledger API
+  (per-event live emission is a documented V2 Partial).
 - ROI computed directly: completion, approval rate, failure rate, cost/task, corrections,
-  model usage. Deterministic numbers from the demo.
+  model usage. Deterministic numbers from the demo (live + seeded events).
 - This is the moat: 6 months of governed, logged work = institutional memory.
 
 ### Slide 6 — Governance & safety (why leadership can trust it)
@@ -44,7 +49,7 @@ Run `uv run python -m aria.demo.golden_path`. Narrate per
 
 ### Slide 7 — What's built vs what's next (radical honesty)
 - **Built:** runtime, skills (PR/KPI/CI-CD/Jira/QA), Work Ledger v2, ROI, governance,
-  evidence gate, memory, RAG, evolution pipeline, model registry. `1021 tests pass`.
+  evidence gate, memory, RAG, evolution pipeline, model registry. `1027 tests pass`.
 - **Prototype:** fine-tuning pipeline (offline dry-run; **no model trained or deployed**).
 - **Roadmap (V2/V3):** vLLM serving, real fine-tuning, live connectors, subagents, multi-tenant AaS.
 - Pull this straight from [week30_truth_and_claim_audit.md](week30_truth_and_claim_audit.md).

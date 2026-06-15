@@ -3,7 +3,7 @@
 The single source of truth for "what version is this?" Use it whenever a claim, a slide, or a
 diagram could blur the line. Consistent with the Truth & Claim Audit.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -18,7 +18,7 @@ diagram could blur the line. Consistent with the Truth & Claim Audit.
 - Memory, RAG, code intelligence; CrewAI analytics/QA crew; Decision Intelligence (greedy).
 - **Governed evolution pipeline** (propose → sandbox → approve → canary → rollback).
 - **Model Lifecycle Registry v1**; **dataset export**.
-- Proof: `1021 tests passing, 1 skipped`; offline deterministic demo.
+- Proof: `1027 tests passing, 1 skipped`; offline deterministic demo.
 
 ## V1 — Prototype (built but explicitly not operational)
 
@@ -67,7 +67,7 @@ diagram could blur the line. Consistent with the Truth & Claim Audit.
 | "Governed evolution pipeline exists" | ✅ V1 (built) |
 | "Work Ledger + ROI" | ✅ V1 (built) |
 | "Evidence gate withholds unsupported claims" | ✅ V1 (built) |
-| "1021 tests passing" | ✅ V1 (verified) |
+| "1027 tests passing" | ✅ V1 (verified) |
 
 ---
 

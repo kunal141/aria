@@ -3,7 +3,7 @@
 DRAFT ONLY. **Do not post** until employer/IP approval is confirmed and the Public-Safety Audit
 pre-publication checklist is fully ✅. Genericize employer/KPI names unless naming is approved.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -25,7 +25,7 @@ pre-publication checklist is fully ✅. Genericize employer/KPI names unless nam
 > 🔹 Memory — a typed Work Ledger that computes ROI directly
 > 🔹 Evolution — propose → sandbox → approve → canary → rollback (never autonomous)
 >
-> It runs end-to-end **offline and deterministically**, with **1021 automated tests passing**.
+> It runs end-to-end **offline and deterministically**, with **1027 automated tests passing**.
 >
 > What it is *not*: not autonomous, not a deployed fine-tuned model, not a magic box. Fine-tuning
 > is an offline prototype. Every production action waits for a human.
@@ -42,7 +42,7 @@ pre-publication checklist is fully ✅. Genericize employer/KPI names unless nam
 >
 > **Claude gives intelligence. ARIA gives governed work ownership.**
 >
-> Seven harness layers around the model. Runs offline, 1021 tests green, and it *withholds*
+> Seven harness layers around the model. Runs offline, 1027 tests green, and it *withholds*
 > answers it can't back with evidence. Not autonomous — every production action waits for a human.
 >
 > The model is the smallest part. The harness is the product.

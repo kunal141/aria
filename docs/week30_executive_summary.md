@@ -3,7 +3,7 @@
 One-page brief for leadership. Plain language, no exaggeration, every claim traceable to the
 Truth & Claim Audit.
 
-**Status:** Awaiting Codex Launch-Readiness Audit.
+**Status:** Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15). Week 30 complete.
 
 ---
 
@@ -11,8 +11,9 @@ Truth & Claim Audit.
 
 ARIA is a **governed AI-employee platform** for engineering work. It receives goals, does the
 work (PR review, KPI investigation, CI/CD triage, Jira drafting, QA/test generation), produces
-structured artifacts, and records every action — but **it never reaches production without a
-human approving it**.
+structured artifacts, and logs its work as typed Work Ledger events (the live graph records the
+**terminal** event per task today; the full event taxonomy is seeded/tested) — but **it never
+reaches production without a human approving it**.
 
 > Claude gives intelligence. ARIA gives governed work ownership.
 
@@ -34,7 +35,7 @@ and (roadmap) subagents. That harness — not the model — is the durable advan
   answers it can't support, rather than guessing.
 - **Measures itself:** a typed **Work Ledger** computes ROI directly — completion, approval rate,
   failure rate, cost-per-task, corrections, model usage.
-- **Tested:** `1021 automated tests passing` (1 skipped).
+- **Tested:** `1027 automated tests passing` (1 skipped).
 - **Governed self-improvement pipeline:** propose → sandbox → approve → canary → rollback.
 
 ## What's honestly *not* done

@@ -316,7 +316,7 @@ bypassing any gate. `ci_cd_node` had no evidence assembly at all.
 - **no real training** (offline deterministic dry-run; no GPU, no model download)
 - **no deployment** (active model stays NONE; production graph / model router unchanged)
 - **no vLLM** serving
-- **Week 30 not started**
+- **Week 30 — Launch Readiness ACCEPTED by Codex** (2026-06-15; see entry below)
 
 ### Notes
 - `CLAUDE.md` Section 28.4 (Agentic AI Roadmap — eight V2/V3 capabilities) added as documentation-only future roadmap; not implemented.
@@ -325,3 +325,50 @@ bypassing any gate. `ci_cd_node` had no evidence assembly at all.
 ### Verified clean
 - `git diff --check`: clean (only benign LF→CRLF warnings)
 - Git working tree: clean at commit `9590750`
+
+---
+
+## Week 30 — Launch Readiness — COMPLETE (Accepted by Codex)
+
+**Date**: 2026-06-14 (work) · **Accepted**: 2026-06-15
+
+**Status**: ✅ **COMPLETE — Week 30 Launch Readiness ACCEPTED by Codex (2026-06-15).** Previous full baseline: 1027 backend tests passing (1 skipped); focused demo suite 6 passed; golden demo reliability verified.
+
+**Scope (no new core capability, pillar, vLLM, real fine-tuning, or deployment):**
+- Offline, deterministic golden-path demo `aria.demo.golden_path` (no paid API, no network).
+- Launch-readiness package: ~17 deliverable docs under `docs/week30_*` (Truth & Claim Audit,
+  Golden Demo, Demo Reliability, launch assets, Public-Safety Audit, positioning, career
+  artifacts, architecture summary, final proof checklist, V1/V2/V3 boundary).
+
+**Codex round-1 verdict: Partially Accepted — findings addressed:**
+- [P1] Golden demo mutated real runtime logs (`notifications.jsonl`, `tool_audit.jsonl`) — now
+  redirected into the temp dir alongside the ledger files; repointed module globals restored on
+  exit; a live run leaves the repo byte-for-byte unchanged.
+- [P1] Seeded Stage-2 events were presented as live lifecycle proof — corrected in 4 docs to
+  state the live graph emits the **terminal** event per task today and Stage 2 is **seeded**
+  demonstration data using the real typed v2 event classes.
+- [P2] No demo tests — added `tests/test_week30_golden_demo.py` (no-pollution regression +
+  routing/evidence/deterministic-metrics/offline/cleanup/global-restore coverage).
+- [P2] Stale status docs — at round-1, CLAUDE.md, both BUILD_LOGs, and the final proof checklist
+  were moved to the then-current "in progress" wording (since superseded by the round-3 Accepted
+  closeout below).
+
+**Codex round-2 verdict: Partially Accepted — three doc/test-hygiene findings closed:**
+- [P2] Demo tests leaked temp dirs (`--keep` retained `aria_golden_*` dirs) — removed `--keep`
+  from the three affected tests so each self-cleans; deleted the 21 retained dirs; verified 0
+  remain after a fresh focused-test run.
+- [P2] Two summaries retained the "every action recorded" ledger overclaim — softened in
+  `week30_architecture_summary.md` + `week30_executive_summary.md` (live graph emits the
+  terminal event per task; full taxonomy is seeded/tested); demo script "rollback you just saw"
+  reworded to seeded + pointed to `aria.model_registry.demo` for executed rollback proof.
+- [P2] Stale canonical status — `CLAUDE.md` §29 refreshed.
+
+**Codex round-3 verdict: ACCEPTED (2026-06-15).** No remaining Week 30 launch-readiness
+findings; focused demo suite 6 passed; `%TEMP%\aria_golden_*` 0 before / 0 after; runtime-file
+isolation fixed; seeded-lifecycle wording explicit; executed-rollback proof points to
+`aria.model_registry.demo`; canonical status current; `git diff --check` passed; previous full
+baseline 1027 passed / 1 skipped. **Week 30 Launch Readiness is ACCEPTED.**
+
+**Closeout boundaries (unchanged):** no vLLM serving, no real fine-tuning, no production
+deployment, no production graph / model-router change. **Public GitHub / LinkedIn publication
+remains BLOCKED** pending employer/IP approval — the public-safe artifacts are **drafts only**.
