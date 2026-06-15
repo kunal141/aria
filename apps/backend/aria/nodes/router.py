@@ -106,8 +106,16 @@ VALID_TYPES = {"pr_review", "kpi", "ci_cd", "jira", "qa", "test_review", "analyt
 
 
 def router(state: ARIAState) -> dict:
-    if _llm_chain:
-        # LLM mode — provider-routed classification
+    # A surface may force offline keyword routing even when a provider is
+    # configured, by setting allow_llm=False (e.g. local chat is offline-by-
+    # default). Absent field → True → normal behaviour for every existing caller.
+    use_llm = _llm_chain is not None and state.get("allow_llm", True) is not False
+
+    if use_llm:
+        # LLM mode — provider-routed classification.
+        # use_llm already implies _llm_chain is not None; assert so the type
+        # checker narrows it (the bool alone doesn't carry the narrowing).
+        assert _llm_chain is not None
         try:
             raw_output = _llm_chain.invoke({"raw_input": state["raw_input"]})
             parsed = json.loads(raw_output)
@@ -118,8 +126,10 @@ def router(state: ARIAState) -> dict:
             import os
             mode = f"[{os.getenv('LLM_PROVIDER', 'anthropic').title()}]"
         except Exception as e:
+            # Never embed raw exception text — a provider/parse error can echo a
+            # secret (API key, password). Surface only the exception class.
             task_type, routing_reason = _keyword_classify(state["raw_input"])
-            mode = f"[Fallback: {e}]"
+            mode = f"[Fallback: {type(e).__name__}; details redacted]"
     else:
         # Keyword mode — no LLM configured
         task_type, routing_reason = _keyword_classify(state["raw_input"])

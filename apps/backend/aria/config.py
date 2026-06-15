@@ -19,9 +19,57 @@ Four routing tiers (Week 16+):
   get_llm()          → LLM_PROVIDER / LLM_MODEL             (general fallback)
 """
 import os
+import contextvars
+from contextlib import contextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Request-scoped offline switch ─────────────────────────────────────────────
+# When set, has_llm() reports False for the duration of the scope, so EVERY
+# component — router and skills alike — runs its offline/mock path and makes no
+# live (paid) call, even when provider credentials are present. Used by
+# offline-by-default surfaces such as the local chat REPL. A contextvar keeps it
+# scoped to the current call (and thread/async-task), never leaking globally.
+_force_offline: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "aria_force_offline", default=False
+)
+
+
+@contextmanager
+def offline_scope():
+    """Force offline execution within this block: ``has_llm()`` returns False
+    AND LangSmith tracing is disabled (then both are restored on exit).
+
+    Disabling tracing matters for an offline-by-default surface. Even when no
+    LLM call is made, an *enabled* LangSmith tracer still POSTs run data to
+    ``api.smith.langchain.com`` in the background whenever LANGSMITH/LANGCHAIN
+    credentials are present. Wrapping execution in
+    ``tracing_context(enabled=False)`` guarantees no outbound tracing call,
+    regardless of ambient credentials — so the surface stays truly offline.
+    """
+    token = _force_offline.set(True)
+    try:
+        with _tracing_disabled():
+            yield
+    finally:
+        _force_offline.reset(token)
+
+
+@contextmanager
+def _tracing_disabled():
+    """Disable LangSmith tracing for the current execution context.
+
+    Best-effort: if ``langsmith`` is not importable, this is a no-op so
+    ``offline_scope()`` never fails just because the tracing library is absent.
+    """
+    try:
+        from langsmith import tracing_context
+    except Exception:
+        yield
+        return
+    with tracing_context(enabled=False):
+        yield
 
 # ── LangSmith tracing (optional — only when API key present) ──────────────────
 _langchain_key = os.getenv("LANGCHAIN_API_KEY") or os.getenv("LANGSMITH_API_KEY")
@@ -250,7 +298,12 @@ def has_llm() -> bool:
     """
     True if the selected provider has the necessary credential / runtime available.
     Used by skills to decide whether to run real inference or return mock output.
+
+    Returns False inside an ``offline_scope()`` regardless of credentials, so an
+    offline-by-default surface can guarantee no live/paid call.
     """
+    if _force_offline.get():
+        return False
     provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
     _checks = {
         "anthropic":  bool(os.getenv("ANTHROPIC_API_KEY")),

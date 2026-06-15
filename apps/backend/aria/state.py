@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, Literal, List
+from typing import TypedDict, Optional, Literal, List, NotRequired
 
 
 class ARIAState(TypedDict):
@@ -66,3 +66,23 @@ class ARIAState(TypedDict):
     # Intelligence layer. Present when kpi_node (and future skills) call
     # EvidenceAssembler. Empty/None when the task type doesn't use the platform layer.
     platform_evidence: Optional[str]
+
+    # ── V1.1 additions (safe chat surface policy) ─────────────────────────────
+    # These fields let an entry surface declare a restrictive execution policy
+    # that downstream nodes honour. All are OMITTABLE (NotRequired): absence
+    # means "default" (the normal governed graph behaviour), so existing callers
+    # that never set them stay type-correct. NotRequired[Optional[T]] = the key
+    # may be absent, and when present may be None — both read safely via .get().
+    #
+    # surface: which entry surface invoked the graph. Lets nodes apply
+    #          surface-scoped policy (e.g. "local_chat" is read-only/dry-run).
+    #          Open string — values grow as new surfaces appear.
+    surface: NotRequired[Optional[str]]
+    # allow_mutations: when False, mutating actions (e.g. evolution
+    #          promote/rollback) MUST NOT execute — they return a blocked /
+    #          dry-run / approval-required result instead. Absent → default-allow.
+    allow_mutations: NotRequired[Optional[bool]]
+    # allow_llm: when False, the router uses the offline keyword classifier even
+    #          if a provider is configured — keeps a surface offline-by-default
+    #          regardless of ambient credentials. Absent → default-allow.
+    allow_llm: NotRequired[Optional[bool]]

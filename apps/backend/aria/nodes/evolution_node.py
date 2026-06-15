@@ -59,17 +59,43 @@ def evolution_node(state: dict) -> dict:
 
     try:
         if _matches(raw, ["scan", "capability gap", "discover", "find gaps"]):
-            result = _handle_scan(state)
+            # State-changing: the scan pipeline persists UpdateReleases to the
+            # store. Gated by the caller's execution policy — a read-only/dry-run
+            # surface (e.g. local chat) gets a blocked result and the pipeline
+            # never runs, so nothing is persisted.
+            result = (
+                _handle_scan(state)
+                if _mutations_allowed(state)
+                else _mutation_blocked("scan", state)
+            )
         elif _matches(raw, ["promote canary", "activate canary", "promote update"]):
-            result = _handle_promote_canary(raw)
+            # Mutating action — gated by the caller's execution policy. When the
+            # surface is read-only/dry-run (e.g. local chat), this returns a
+            # blocked result WITHOUT touching real components.
+            result = (
+                _handle_promote_canary(raw)
+                if _mutations_allowed(state)
+                else _mutation_blocked("promote_canary", state)
+            )
         elif _matches(raw, ["pending", "show proposal", "list proposal", "self-improvement"]):
             result = _handle_list_pending()
         elif _matches(raw, ["evaluate proposal", "run evaluation", "evaluate prop"]):
-            result = _handle_evaluate_proposal(raw, state)
+            # State-changing: evaluating a proposal runs the pipeline, which
+            # persists an UpdateRelease. Gated like scan/promote/rollback.
+            result = (
+                _handle_evaluate_proposal(raw, state)
+                if _mutations_allowed(state)
+                else _mutation_blocked("evaluate_proposal", state)
+            )
         elif _matches(raw, ["compare update", "show diff", "compare version"]):
             result = _handle_compare_update(raw)
         elif _matches(raw, ["rollback component", "rollback ", "revert component"]):
-            result = _handle_rollback(raw)
+            # Mutating action — gated by the caller's execution policy (see above).
+            result = (
+                _handle_rollback(raw)
+                if _mutations_allowed(state)
+                else _mutation_blocked("rollback", state)
+            )
         else:
             result = _handle_list_pending()
 
@@ -80,11 +106,15 @@ def evolution_node(state: dict) -> dict:
             "steps_completed":   state.get("steps_completed", []) + ["evolution_node"],
         }
     except Exception as exc:
+        # Never embed raw exception text — it can carry secrets (e.g. a provider
+        # error echoing an API key/password). Surface only a redacted, typed
+        # envelope so nothing sensitive reaches skill_output / response / error.
+        safe = _safe_error(exc)
         return {
-            "skill_name":    "evolution",
-            "skill_output":  json.dumps({"error": str(exc)}),
-            "task_status":   "executing",
-            "error":         str(exc),
+            "skill_name":      "evolution",
+            "skill_output":    json.dumps(safe),
+            "task_status":     "executing",
+            "error":           f"{safe['error_type']}: details redacted",
             "steps_completed": state.get("steps_completed", []) + ["evolution_node"],
         }
 
@@ -277,6 +307,65 @@ def _handle_rollback(raw: str) -> dict:
         }
     except (KeyError, ValueError) as exc:
         return {"action": "rollback", "error": str(exc)}
+
+
+# ── Surface execution policy (safe-chat) ────────────────────────────────────────
+
+def _mutations_allowed(state: dict) -> bool:
+    """Whether mutating evolution actions (promote/rollback) may execute.
+
+    This is a structured policy check, NOT a keyword denylist. A caller opts
+    OUT of mutations by declaring a read-only/dry-run execution policy on the
+    state envelope:
+      - allow_mutations=False        → deny
+      - execution_mode in {dry_run, read_only} → deny
+    Absence of both → default-allow, so the normal governed graph (and every
+    existing test that passes no policy) keeps its prior behaviour.
+    """
+    if state.get("allow_mutations") is False:
+        return False
+    if state.get("execution_mode") in ("dry_run", "read_only"):
+        return False
+    return True
+
+
+def _mutation_blocked(action: str, state: dict) -> dict:
+    """Result returned when a state-changing action is blocked by surface policy.
+
+    No pipeline / UpdateManager call is made — nothing is scanned-into-the-store,
+    evaluated-into-a-release, promoted, restored, or otherwise mutated. The user
+    can still ASK about evolution; this is the safe dry-run answer.
+    """
+    surface = state.get("surface") or "this surface"
+    pretty = action.replace("_", " ")
+    return {
+        "action":   action,
+        "blocked":  True,
+        "dry_run":  True,
+        "surface":  state.get("surface"),
+        "message": (
+            f"'{pretty}' is a state-changing evolution action and is blocked "
+            f"from {surface} (read-only / dry-run). It would persist or activate "
+            f"runtime components, which requires the governed T4 approval path — "
+            f"not a local chat surface. No evolution state was modified."
+        ),
+    }
+
+
+def _safe_error(exc: Exception) -> dict:
+    """Redacted error envelope for internally-caught exceptions.
+
+    Raw exception text can carry secrets (e.g. a provider error echoing an API
+    key/password). We surface only the exception class name plus a fixed
+    'details redacted' note — never ``str(exc)`` — so nothing sensitive reaches
+    skill_output / response / error, nor the chat REPL's display layer.
+    """
+    return {
+        "action":     "error",
+        "error":      "internal_error",
+        "error_type": type(exc).__name__,
+        "detail":     "details redacted",
+    }
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
