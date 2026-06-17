@@ -17,18 +17,32 @@ from aria.memory_v2.models import (
     ProposalStatus,
     Sensitivity,
 )
-from aria.memory_v2.paths import aria_data_dir, is_confined, memory_db_path
+from aria.memory_v2.paths import (
+    PathConfinementError,
+    aria_data_dir,
+    ensure_confined,
+    is_confined,
+    memory_db_path,
+    workspaces_db_path,
+)
 from aria.memory_v2.sensitivity import SensitiveMemoryError, classify, is_sensitive
 from aria.memory_v2.store import (
     DomainMemoryStore,
     MemoryNotFound,
     ProposalNotPending,
 )
+from aria.memory_v2.workspace import Workspace, WorkspaceNotFound, WorkspaceStore
 
 __all__ = [
     "DomainMemoryStore",
     "MemoryNotFound",
     "ProposalNotPending",
+    "WorkspaceStore",
+    "Workspace",
+    "WorkspaceNotFound",
+    "PathConfinementError",
+    "ensure_confined",
+    "workspaces_db_path",
     "SensitiveMemoryError",
     "ChatSession",
     "ChatTurn",

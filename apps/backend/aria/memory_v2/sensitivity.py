@@ -22,7 +22,7 @@ from aria.memory_v2.models import SENSITIVE_LEVELS, Sensitivity
 _SENSITIVE_MARKERS = (
     "confidential", "restricted", "sensitive", "secret", "password",
     "api_key", "api key", "apikey", "credential", "private_key", "token",
-    "ssn", "pii",
+    "bearer", "ssn", "pii",
 )
 
 
@@ -59,6 +59,12 @@ def _contains_marker(text: str) -> str | None:
         if marker in low:
             return marker
     return None
+
+
+def contains_sensitive_marker(text: str) -> bool:
+    """Public guard: True if ``text`` contains any sensitivity marker (used to
+    reject secret-bearing artifact filenames, scopes, etc.)."""
+    return _contains_marker(str(text)) is not None
 
 
 def classify(

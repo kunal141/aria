@@ -12,6 +12,7 @@ Endpoints:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from aria.api.v2 import v2_router
 from aria.ledger.api import router as ledger_router
 from aria.voice.router import router as voice_router
 
@@ -31,6 +32,7 @@ app.add_middleware(
 
 app.include_router(voice_router)
 app.include_router(ledger_router)
+app.include_router(v2_router)   # Week 33: V2 chat / memory / workspace (localhost pilot)
 
 
 @app.get("/health")

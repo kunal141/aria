@@ -54,6 +54,8 @@ from aria.ledger.events import (
     SkillInvoked,
     TaskCreated,
     WorkflowInvoked,
+    WorkspaceCreated,
+    WorkspaceUpdated,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -95,6 +97,8 @@ __all__ = [
     "MemorySuperseded",
     "MemoryDeleted",
     "MemoryRolledBack",
+    "WorkspaceCreated",
+    "WorkspaceUpdated",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

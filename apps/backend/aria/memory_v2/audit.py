@@ -34,6 +34,8 @@ from aria.ledger import (
     MemoryRolledBack,
     MemorySuperseded,
     Rejected,
+    WorkspaceCreated,
+    WorkspaceUpdated,
 )
 from aria.ledger.events import make_envelope
 
@@ -50,6 +52,8 @@ _EVENT_CLASSES = {
     LedgerEventType.approval_requested: ApprovalRequested,
     LedgerEventType.approved:           Approved,
     LedgerEventType.rejected:           Rejected,
+    LedgerEventType.workspace_created:  WorkspaceCreated,
+    LedgerEventType.workspace_updated:  WorkspaceUpdated,
 }
 
 
@@ -66,6 +70,7 @@ def build_memory_event(
     memory_version: int | None = None,
     proposal_id: str | None = None,
     approval_id: str | None = None,
+    workspace_id: str | None = None,
     execution_mode: str | None = None,
     model: str | None = None,
     outcome: str | None = None,
@@ -77,6 +82,7 @@ def build_memory_event(
         ("memory_id", memory_id),
         ("memory_version", memory_version),
         ("proposal_id", proposal_id),
+        ("workspace_id", workspace_id),
         ("execution_mode", execution_mode),
     ):
         if value is not None:

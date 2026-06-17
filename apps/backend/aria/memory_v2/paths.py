@@ -46,6 +46,21 @@ def memory_db_path() -> Path:
     return aria_data_dir() / "memory" / "store.sqlite"
 
 
+def workspaces_dir() -> Path:
+    """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
+    return aria_data_dir() / "workspaces"
+
+
+def workspaces_db_path() -> Path:
+    """Absolute path to the SQLite workspace-metadata store."""
+    return workspaces_dir() / "workspaces.sqlite"
+
+
+def workspace_artifact_dir(workspace_id: str) -> Path:
+    """Confined per-workspace runtime directory for artifact bytes."""
+    return workspaces_dir() / workspace_id
+
+
 def is_confined(path: Path) -> bool:
     """True iff ``path`` resolves inside ``aria_data_dir()`` (path-confinement guard).
 

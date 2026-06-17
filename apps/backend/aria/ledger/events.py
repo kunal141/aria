@@ -140,6 +140,13 @@ class LedgerEventType(str, Enum):
     memory_superseded    = "memory_superseded"
     memory_deleted       = "memory_deleted"
     memory_rolled_back   = "memory_rolled_back"
+    # ── Week 33: persistent workspace events ──────────────────────────────────
+    # Genuinely new concepts. The decision audit reuses approval_requested /
+    # approved / rejected (Week 32) and conversation flow reuses
+    # conversation_started / message_received / workflow_invoked — so no
+    # api/approval event types are added. Workspace identifiers ride in metadata.
+    workspace_created    = "workspace_created"
+    workspace_updated    = "workspace_updated"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -648,6 +655,16 @@ class MemoryRolledBack(LedgerEventBase):
     event_type: Literal[LedgerEventType.memory_rolled_back] = LedgerEventType.memory_rolled_back
 
 
+class WorkspaceCreated(LedgerEventBase):
+    """A persistent task/session workspace was created (Week 33)."""
+    event_type: Literal[LedgerEventType.workspace_created] = LedgerEventType.workspace_created
+
+
+class WorkspaceUpdated(LedgerEventBase):
+    """A persistent workspace was updated with new artifacts/citations/outcome."""
+    event_type: Literal[LedgerEventType.workspace_updated] = LedgerEventType.workspace_updated
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -719,7 +736,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated,
     Field(discriminator="event_type"),
 ]
 

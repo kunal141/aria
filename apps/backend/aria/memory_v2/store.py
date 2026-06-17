@@ -681,6 +681,30 @@ class DomainMemoryStore:
         ).fetchall()
         return [self._row_to_version(r) for r in rows]
 
+    def list_active_memories(self, *, scope: str | None = None) -> list[DomainMemoryVersion]:
+        """Active, approved (non-tombstone) memory versions — never pending/rejected.
+
+        Sensitive scopes are excluded (V2 has no authenticated identity), so this
+        is safe to surface through the API.
+        """
+        conn = self._connect()
+        if scope is not None:
+            rows = conn.execute(
+                "SELECT * FROM domain_memory_version WHERE is_active=1 AND is_tombstone=0 "
+                "AND scope=? ORDER BY scope, memory_id, version",
+                (scope,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM domain_memory_version WHERE is_active=1 AND is_tombstone=0 "
+                "ORDER BY scope, memory_id, version"
+            ).fetchall()
+        return [
+            self._row_to_version(r)
+            for r in rows
+            if not is_sensitive(scope=r["scope"])
+        ]
+
     def _max_version(self, memory_id: str) -> int:
         row = self._connect().execute(
             "SELECT MAX(version) AS m FROM domain_memory_version WHERE memory_id=?", (memory_id,)
