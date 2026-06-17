@@ -38,10 +38,10 @@ Money + time
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -50,7 +50,6 @@ from aria.ledger.privacy import (
     redact_freetext,
     sanitize_metadata,
 )
-
 
 # Structural correlation keys consumed by downstream systems (joins,
 # traces, dedup). These MUST NOT carry credentials — credentials would
@@ -126,6 +125,21 @@ class LedgerEventType(str, Enum):
     model_used          = "model_used"
     cost_recorded       = "cost_recorded"
     model_lifecycle     = "model_lifecycle"
+    # ── Week 32: V2 conversation + domain-memory events ───────────────────────
+    # Genuinely new concepts (conversation + SQLite domain memory). Approval
+    # decisions reuse approval_requested / approved / rejected above; these
+    # record conversation flow and memory-store state transitions. Memory-
+    # specific identifiers (session_id, scope, memory_id, memory_version,
+    # proposal_id, execution_mode) ride in the sanitised ``metadata`` dict.
+    conversation_started = "conversation_started"
+    message_received     = "message_received"
+    workflow_invoked     = "workflow_invoked"
+    memory_proposed      = "memory_proposed"
+    memory_applied       = "memory_applied"
+    memory_recalled      = "memory_recalled"
+    memory_superseded    = "memory_superseded"
+    memory_deleted       = "memory_deleted"
+    memory_rolled_back   = "memory_rolled_back"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -159,7 +173,7 @@ class RiskLevel(str, Enum):
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_event_id() -> str:
@@ -186,34 +200,34 @@ class LedgerEventBase(BaseModel):
     timestamp:       datetime
     task_id:         str = Field(min_length=1)
     correlation_id:  str = Field(min_length=1)
-    parent_task_id:  Optional[str] = None
-    workflow_id:     Optional[str] = None
+    parent_task_id:  str | None = None
+    workflow_id:     str | None = None
     actor:           str = Field(min_length=1)
     actor_type:      ActorType
-    skill_name:      Optional[str] = None
-    agent_role:      Optional[str] = None
-    model_name:      Optional[str] = None
-    model_version:   Optional[str] = None
-    component_name:  Optional[str] = None
-    component_version: Optional[str] = None
-    artifact_id:     Optional[str] = None
-    approval_id:     Optional[str] = None
-    action_tier:     Optional[ActionTier] = None
-    risk_level:      Optional[RiskLevel]  = None
-    status:          Optional[str] = None
-    outcome:         Optional[str] = None
-    error:           Optional[str] = None
-    started_at:      Optional[datetime] = None
-    completed_at:    Optional[datetime] = None
-    duration_ms:     Optional[int] = None
-    token_input:     Optional[int] = None
-    token_output:    Optional[int] = None
-    estimated_cost:  Optional[Decimal] = None
+    skill_name:      str | None = None
+    agent_role:      str | None = None
+    model_name:      str | None = None
+    model_version:   str | None = None
+    component_name:  str | None = None
+    component_version: str | None = None
+    artifact_id:     str | None = None
+    approval_id:     str | None = None
+    action_tier:     ActionTier | None = None
+    risk_level:      RiskLevel | None  = None
+    status:          str | None = None
+    outcome:         str | None = None
+    error:           str | None = None
+    started_at:      datetime | None = None
+    completed_at:    datetime | None = None
+    duration_ms:     int | None = None
+    token_input:     int | None = None
+    token_output:    int | None = None
+    estimated_cost:  Decimal | None = None
     metadata:        dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("timestamp", "started_at", "completed_at")
     @classmethod
-    def _require_tzaware(cls, v: Optional[datetime]) -> Optional[datetime]:
+    def _require_tzaware(cls, v: datetime | None) -> datetime | None:
         if v is None:
             return v
         if v.tzinfo is None:
@@ -222,11 +236,11 @@ class LedgerEventBase(BaseModel):
                 f"Got naive datetime: {v!r}"
             )
         # Normalise everything to UTC so metric math is unambiguous.
-        return v.astimezone(timezone.utc)
+        return v.astimezone(UTC)
 
     @field_validator("token_input", "token_output", "duration_ms")
     @classmethod
-    def _nonneg(cls, v: Optional[int]) -> Optional[int]:
+    def _nonneg(cls, v: int | None) -> int | None:
         if v is not None and v < 0:
             raise ValueError(
                 f"Token counts and duration_ms must be non-negative; got {v!r}"
@@ -235,7 +249,7 @@ class LedgerEventBase(BaseModel):
 
     @field_validator("estimated_cost")
     @classmethod
-    def _nonneg_cost(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+    def _nonneg_cost(cls, v: Decimal | None) -> Decimal | None:
         if v is not None and v < 0:
             raise ValueError(f"estimated_cost must be non-negative; got {v!r}")
         return v
@@ -271,7 +285,7 @@ class LedgerEventBase(BaseModel):
         return cleaned
 
     @model_validator(mode="after")
-    def _validate_identifier_integrity(self) -> "LedgerEventBase":
+    def _validate_identifier_integrity(self) -> LedgerEventBase:
         """
         Two checks on identifier-shaped fields:
 
@@ -334,7 +348,7 @@ class SkillInvoked(LedgerEventBase):
     event_type:  Literal[LedgerEventType.skill_invoked] = LedgerEventType.skill_invoked
 
     @model_validator(mode="after")
-    def _require_skill_name(self) -> "SkillInvoked":
+    def _require_skill_name(self) -> SkillInvoked:
         if not self.skill_name:
             raise ValueError("SkillInvoked requires skill_name")
         return self
@@ -345,7 +359,7 @@ class ArtifactCreated(LedgerEventBase):
     event_type:  Literal[LedgerEventType.artifact_created] = LedgerEventType.artifact_created
 
     @model_validator(mode="after")
-    def _require_artifact_id(self) -> "ArtifactCreated":
+    def _require_artifact_id(self) -> ArtifactCreated:
         if not self.artifact_id:
             raise ValueError("ArtifactCreated requires artifact_id")
         return self
@@ -356,7 +370,7 @@ class ApprovalRequested(LedgerEventBase):
     event_type:  Literal[LedgerEventType.approval_requested] = LedgerEventType.approval_requested
 
     @model_validator(mode="after")
-    def _require_approval_id(self) -> "ApprovalRequested":
+    def _require_approval_id(self) -> ApprovalRequested:
         if not self.approval_id:
             raise ValueError("ApprovalRequested requires approval_id")
         return self
@@ -367,7 +381,7 @@ class Approved(LedgerEventBase):
     event_type:  Literal[LedgerEventType.approved] = LedgerEventType.approved
 
     @model_validator(mode="after")
-    def _require_approval(self) -> "Approved":
+    def _require_approval(self) -> Approved:
         if not self.approval_id:
             raise ValueError("Approved requires approval_id")
         if self.actor_type != ActorType.human:
@@ -382,7 +396,7 @@ class Rejected(LedgerEventBase):
     event_type:  Literal[LedgerEventType.rejected] = LedgerEventType.rejected
 
     @model_validator(mode="after")
-    def _require_approval(self) -> "Rejected":
+    def _require_approval(self) -> Rejected:
         if not self.approval_id:
             raise ValueError("Rejected requires approval_id")
         if self.actor_type != ActorType.human:
@@ -395,7 +409,7 @@ class ActionTaken(LedgerEventBase):
     event_type:  Literal[LedgerEventType.action_taken] = LedgerEventType.action_taken
 
     @model_validator(mode="after")
-    def _require_tier(self) -> "ActionTaken":
+    def _require_tier(self) -> ActionTaken:
         if self.action_tier is None:
             raise ValueError("ActionTaken requires action_tier")
         return self
@@ -406,7 +420,7 @@ class Failed(LedgerEventBase):
     event_type:  Literal[LedgerEventType.failed] = LedgerEventType.failed
 
     @model_validator(mode="after")
-    def _require_error(self) -> "Failed":
+    def _require_error(self) -> Failed:
         if not self.error:
             raise ValueError("Failed requires non-empty error")
         return self
@@ -434,11 +448,11 @@ class OutcomeRecorded(LedgerEventBase):
     never eligible to authorise an SFT example (fail closed).
     """
     event_type:   Literal[LedgerEventType.outcome_recorded] = LedgerEventType.outcome_recorded
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
 
     @field_validator("content_hash")
     @classmethod
-    def _validate_content_hash(cls, v: Optional[str]) -> Optional[str]:
+    def _validate_content_hash(cls, v: str | None) -> str | None:
         if v is None:
             return v
         if len(v) != 64 or any(c not in "0123456789abcdef" for c in v):
@@ -449,7 +463,7 @@ class OutcomeRecorded(LedgerEventBase):
         return v
 
     @model_validator(mode="after")
-    def _require_outcome(self) -> "OutcomeRecorded":
+    def _require_outcome(self) -> OutcomeRecorded:
         if not self.outcome:
             raise ValueError("OutcomeRecorded requires outcome")
         return self
@@ -472,11 +486,11 @@ class CorrectionRecorded(LedgerEventBase):
     never eligible to authorise a DPO pair (fail closed).
     """
     event_type:   Literal[LedgerEventType.correction_recorded] = LedgerEventType.correction_recorded
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
 
     @field_validator("content_hash")
     @classmethod
-    def _validate_content_hash(cls, v: Optional[str]) -> Optional[str]:
+    def _validate_content_hash(cls, v: str | None) -> str | None:
         if v is None:
             return v
         if len(v) != 64 or any(c not in "0123456789abcdef" for c in v):
@@ -487,7 +501,7 @@ class CorrectionRecorded(LedgerEventBase):
         return v
 
     @model_validator(mode="after")
-    def _require_correction(self) -> "CorrectionRecorded":
+    def _require_correction(self) -> CorrectionRecorded:
         if self.actor_type not in (ActorType.human, ActorType.subagent):
             raise ValueError(
                 "CorrectionRecorded.actor_type must be 'human' or 'subagent'"
@@ -500,7 +514,7 @@ class ModelUsed(LedgerEventBase):
     event_type:  Literal[LedgerEventType.model_used] = LedgerEventType.model_used
 
     @model_validator(mode="after")
-    def _require_model(self) -> "ModelUsed":
+    def _require_model(self) -> ModelUsed:
         if not self.model_name:
             raise ValueError("ModelUsed requires model_name")
         return self
@@ -511,7 +525,7 @@ class CostRecorded(LedgerEventBase):
     event_type:  Literal[LedgerEventType.cost_recorded] = LedgerEventType.cost_recorded
 
     @model_validator(mode="after")
-    def _require_cost(self) -> "CostRecorded":
+    def _require_cost(self) -> CostRecorded:
         if self.estimated_cost is None:
             raise ValueError("CostRecorded requires estimated_cost (Decimal)")
         return self
@@ -540,13 +554,13 @@ class ModelLifecycleEvent(LedgerEventBase):
     event_type:          Literal[LedgerEventType.model_lifecycle] = LedgerEventType.model_lifecycle
     production_consumer: str
     to_status:           str
-    from_status:         Optional[str] = None
-    dataset_id:          Optional[str] = None
-    dataset_hash:        Optional[str] = None
+    from_status:         str | None = None
+    dataset_id:          str | None = None
+    dataset_hash:        str | None = None
 
     @field_validator("dataset_hash")
     @classmethod
-    def _valid_dataset_hash(cls, v: Optional[str]) -> Optional[str]:
+    def _valid_dataset_hash(cls, v: str | None) -> str | None:
         if v is None:
             return v
         normalised = v.lower()
@@ -557,7 +571,7 @@ class ModelLifecycleEvent(LedgerEventBase):
         return normalised
 
     @model_validator(mode="after")
-    def _require_lifecycle_fields(self) -> "ModelLifecycleEvent":
+    def _require_lifecycle_fields(self) -> ModelLifecycleEvent:
         if not self.model_name:
             raise ValueError("ModelLifecycleEvent requires model_name")
         if not self.model_version:
@@ -581,6 +595,59 @@ class ModelLifecycleEvent(LedgerEventBase):
         return self
 
 
+# ── Week 32: V2 conversation + domain-memory events ───────────────────────────
+# Minimal typed subclasses (like ModelUsed): the shared envelope already
+# validates redaction, identifiers, and timestamps. Memory-specific facts
+# (session_id, scope, memory_id, memory_version, proposal_id, execution_mode)
+# travel in the sanitised ``metadata`` dict — no envelope field changes, so
+# existing readers/metrics keep working and forward-compat is preserved.
+
+
+class ConversationStarted(LedgerEventBase):
+    """A V2 conversation session was opened."""
+    event_type: Literal[LedgerEventType.conversation_started] = LedgerEventType.conversation_started
+
+
+class MessageReceived(LedgerEventBase):
+    """A user turn entered the conversation orchestrator."""
+    event_type: Literal[LedgerEventType.message_received] = LedgerEventType.message_received
+
+
+class WorkflowInvoked(LedgerEventBase):
+    """The orchestrator handed a turn to the V1 graph boundary (run_workflow)."""
+    event_type: Literal[LedgerEventType.workflow_invoked] = LedgerEventType.workflow_invoked
+
+
+class MemoryProposed(LedgerEventBase):
+    """A domain-memory proposal was created (pending human decision)."""
+    event_type: Literal[LedgerEventType.memory_proposed] = LedgerEventType.memory_proposed
+
+
+class MemoryApplied(LedgerEventBase):
+    """An approved proposal was written as a new active domain-memory version."""
+    event_type: Literal[LedgerEventType.memory_applied] = LedgerEventType.memory_applied
+
+
+class MemoryRecalled(LedgerEventBase):
+    """Approved domain memory was retrieved and cited in an answer."""
+    event_type: Literal[LedgerEventType.memory_recalled] = LedgerEventType.memory_recalled
+
+
+class MemorySuperseded(LedgerEventBase):
+    """A prior memory version was superseded by a new approved version (update)."""
+    event_type: Literal[LedgerEventType.memory_superseded] = LedgerEventType.memory_superseded
+
+
+class MemoryDeleted(LedgerEventBase):
+    """An active memory version was tombstoned (delete proposal approved)."""
+    event_type: Literal[LedgerEventType.memory_deleted] = LedgerEventType.memory_deleted
+
+
+class MemoryRolledBack(LedgerEventBase):
+    """A prior approved memory version was restored as the active version."""
+    event_type: Literal[LedgerEventType.memory_rolled_back] = LedgerEventType.memory_rolled_back
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -598,12 +665,12 @@ class LegacyTaskRecord(BaseModel):
 
     event_type:        Literal[LedgerEventType.legacy_task] = LedgerEventType.legacy_task
     task_id:           str
-    task_type:         Optional[str] = None
-    routing_reason:    Optional[str] = None
+    task_type:         str | None = None
+    routing_reason:    str | None = None
     timestamp:         datetime
-    error:             Optional[str] = None
-    platform_evidence: Optional[str] = None
-    week:              Optional[int] = None
+    error:             str | None = None
+    platform_evidence: str | None = None
+    week:              int | None = None
 
     @field_validator("timestamp")
     @classmethod
@@ -611,8 +678,8 @@ class LegacyTaskRecord(BaseModel):
         if v.tzinfo is None:
             # Legacy entries stored timezone-aware ISO strings; if any
             # historical naive entry slips through, assume UTC for safety.
-            return v.replace(tzinfo=timezone.utc)
-        return v.astimezone(timezone.utc)
+            return v.replace(tzinfo=UTC)
+        return v.astimezone(UTC)
 
 
 class LegacyEvolutionRecord(BaseModel):
@@ -627,21 +694,21 @@ class LegacyEvolutionRecord(BaseModel):
     event_type:     Literal[LedgerEventType.legacy_evolution] = LedgerEventType.legacy_evolution
     original_type:  str
     task_id:        str
-    proposal_id:    Optional[str] = None
-    update_id:      Optional[str] = None
-    component_name: Optional[str] = None
-    version:        Optional[str] = None
+    proposal_id:    str | None = None
+    update_id:      str | None = None
+    component_name: str | None = None
+    version:        str | None = None
     timestamp:      datetime
-    actor:          Optional[str] = None
-    outcome:        Optional[str] = None
-    detail:         Optional[str] = None
+    actor:          str | None = None
+    outcome:        str | None = None
+    detail:         str | None = None
 
     @field_validator("timestamp")
     @classmethod
     def _coerce_tz(cls, v: datetime) -> datetime:
         if v.tzinfo is None:
-            return v.replace(tzinfo=timezone.utc)
-        return v.astimezone(timezone.utc)
+            return v.replace(tzinfo=UTC)
+        return v.astimezone(UTC)
 
 
 # ── Discriminated union ───────────────────────────────────────────────────────
@@ -652,23 +719,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    Union[
-        TaskCreated,
-        Routed,
-        SkillInvoked,
-        ArtifactCreated,
-        ApprovalRequested,
-        Approved,
-        Rejected,
-        ActionTaken,
-        Failed,
-        Responded,
-        OutcomeRecorded,
-        CorrectionRecorded,
-        ModelUsed,
-        CostRecorded,
-        ModelLifecycleEvent,
-    ],
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack,
     Field(discriminator="event_type"),
 ]
 
@@ -681,9 +732,9 @@ def make_envelope(
     task_id: str,
     actor: str,
     actor_type: ActorType,
-    correlation_id: Optional[str] = None,
-    event_id: Optional[str] = None,
-    timestamp: Optional[datetime] = None,
+    correlation_id: str | None = None,
+    event_id: str | None = None,
+    timestamp: datetime | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """

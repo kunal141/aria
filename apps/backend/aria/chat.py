@@ -162,16 +162,25 @@ def repl(read=input, write=print, ask_fn=None, allow_llm=False) -> None:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
-    allow_llm = "--llm" in argv
 
-    # Windows console fix for Unicode in artifact cards (mirrors main.py).
-    # Guarded so importing/running under pytest's captured stdout is safe.
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
-    repl(allow_llm=allow_llm)
-    return 0
+    # V1.1 single-turn REPL is preserved behind --v1 (and used by tests via
+    # ``repl``/``ask``). By default ``python -m aria.chat`` now launches the Week
+    # 32 multi-turn, session-aware, memory-aware terminal, which reuses ``ask`` as
+    # the governed graph boundary for run_workflow.
+    if "--v1" in argv:
+        allow_llm = "--llm" in argv
+        # Windows console fix for Unicode in artifact cards (mirrors main.py).
+        # Guarded so importing/running under pytest's captured stdout is safe.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+        repl(allow_llm=allow_llm)
+        return 0
+
+    from aria.conversation.terminal import main as session_main  # lazy: avoids import cycle
+
+    return session_main(argv)
 
 
 if __name__ == "__main__":

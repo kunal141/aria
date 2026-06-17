@@ -19,6 +19,7 @@ env/
 *.env
 
 # ARIA runtime data (not source — regenerated)
+.aria_data/
 memory_store.json
 work_ledger.jsonl
 work_ledger_v2.jsonl

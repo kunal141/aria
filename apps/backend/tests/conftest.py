@@ -59,3 +59,15 @@ def _isolate_deployment_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     isolated_root = tmp_path / "deployments"
     monkeypatch.setattr(ops, "DEPLOYMENT_ROOT", isolated_root)
     yield isolated_root
+
+
+@pytest.fixture(autouse=True)
+def _isolate_aria_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Redirect ``ARIA_DATA_DIR`` (Week 32 V2 runtime data root — SQLite domain
+    memory, future workspaces) to a per-test temp dir so NO test writes the real
+    ``apps/backend/.aria_data`` tree. The memory store resolves this env at write
+    time, so setting it here isolates every store instance.
+    """
+    isolated = tmp_path / "aria_data"
+    monkeypatch.setenv("ARIA_DATA_DIR", str(isolated))
+    yield isolated
