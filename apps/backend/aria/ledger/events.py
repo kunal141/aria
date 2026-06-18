@@ -163,6 +163,18 @@ class LedgerEventType(str, Enum):
     task_board_created           = "task_board_created"
     task_status_updated          = "task_status_updated"
     goal_progress_reported       = "goal_progress_reported"
+    # ── V3.2: governed work-execution loop events ─────────────────────────────
+    # Planning/control execution only — a "work step" updates a task's planning
+    # status and produces a planning artifact; it executes no tool and writes
+    # nothing externally. Identifiers ride in the sanitised ``metadata`` dict.
+    work_step_started            = "work_step_started"
+    work_step_completed          = "work_step_completed"
+    work_step_blocked            = "work_step_blocked"
+    clarification_requested      = "clarification_requested"
+    clarification_answered       = "clarification_answered"
+    evidence_provided            = "evidence_provided"
+    progress_report_created      = "progress_report_created"
+    deliverable_tracked          = "deliverable_tracked"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -739,6 +751,62 @@ class GoalProgressReported(LedgerEventBase):
     )
 
 
+# ── V3.2: governed work-execution loop events ─────────────────────────────────
+# Minimal typed subclasses. A "work step" is planning/control only — it moves a
+# task's planning status and produces a planning artifact; no tool runs, nothing
+# is written externally. Approval-required steps never auto-execute.
+
+
+class WorkStepStarted(LedgerEventBase):
+    """A governed execution step began (a task was selected to be worked)."""
+    event_type: Literal[LedgerEventType.work_step_started] = LedgerEventType.work_step_started
+
+
+class WorkStepCompleted(LedgerEventBase):
+    """A governed execution step completed and produced a planning artifact."""
+    event_type: Literal[LedgerEventType.work_step_completed] = LedgerEventType.work_step_completed
+
+
+class WorkStepBlocked(LedgerEventBase):
+    """A governed execution step was blocked (clarification / evidence / approval)
+    or failed safely — nothing was executed or written."""
+    event_type: Literal[LedgerEventType.work_step_blocked] = LedgerEventType.work_step_blocked
+
+
+class ClarificationRequested(LedgerEventBase):
+    """ARIA produced a clarification request because required context was missing."""
+    event_type: Literal[LedgerEventType.clarification_requested] = (
+        LedgerEventType.clarification_requested
+    )
+
+
+class ClarificationAnswered(LedgerEventBase):
+    """A human answered a clarification request (unblocks the execution loop). The
+    answer VALUES are not stored on the ledger — only the clarification_id + actor."""
+    event_type: Literal[LedgerEventType.clarification_answered] = (
+        LedgerEventType.clarification_answered
+    )
+
+
+class EvidenceProvided(LedgerEventBase):
+    """A human supplied evidence references (ARIA never fabricates evidence). The
+    refs ride in the sanitised metadata; this records who/when, for audit."""
+    event_type: Literal[LedgerEventType.evidence_provided] = LedgerEventType.evidence_provided
+
+
+class ProgressReportCreated(LedgerEventBase):
+    """A goal execution-progress report was produced from persisted state."""
+    event_type: Literal[LedgerEventType.progress_report_created] = (
+        LedgerEventType.progress_report_created
+    )
+
+
+class DeliverableTracked(LedgerEventBase):
+    """A planning/progress deliverable reference was recorded for a goal (NOT an
+    external write — a tracked artifact only)."""
+    event_type: Literal[LedgerEventType.deliverable_tracked] = LedgerEventType.deliverable_tracked
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -810,7 +878,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked,
     Field(discriminator="event_type"),
 ]
 

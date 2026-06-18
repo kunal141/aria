@@ -1,21 +1,27 @@
 """
-FastAPI V3.1 goal-ownership API (Goal Ownership Foundation).
+FastAPI V3 goal-ownership + work-execution API (V3.1 Goal Ownership Foundation +
+V3.2 Work Execution Loop).
 
 Localhost pilot only. **Additive** — it does NOT modify the V1 or V2 APIs. It
-reuses the V3.1 ``GoalService`` (intake → roadmap → task board) and the V2
-``WorkspaceStore``; no planning logic is duplicated here.
+reuses the V3.1 ``GoalService`` (intake → roadmap → task board), the V3.2
+``ExecutionService`` (governed one-step-at-a-time loop), and the V2
+``WorkspaceStore``; no planning/execution logic is duplicated here.
 
 Endpoints:
-    POST  /api/v3/goals
-    GET   /api/v3/goals
-    GET   /api/v3/goals/{goal_id}
-    GET   /api/v3/goals/{goal_id}/roadmap
-    GET   /api/v3/goals/{goal_id}/tasks
-    PATCH /api/v3/goals/{goal_id}/tasks/{task_id}
-    GET   /api/v3/goals/{goal_id}/progress
+    POST  /api/v3/goals                                  (V3.1)
+    GET   /api/v3/goals                                  (V3.1)
+    GET   /api/v3/goals/{goal_id}                        (V3.1)
+    GET   /api/v3/goals/{goal_id}/roadmap                (V3.1)
+    GET   /api/v3/goals/{goal_id}/tasks                  (V3.1)
+    PATCH /api/v3/goals/{goal_id}/tasks/{task_id}        (V3.1)
+    GET   /api/v3/goals/{goal_id}/progress               (V3.2 execution-aware report)
+    POST  /api/v3/goals/{goal_id}/execute-next           (V3.2)
+    POST  /api/v3/goals/{goal_id}/clarifications         (V3.2)
+    POST  /api/v3/goals/{goal_id}/evidence               (V3.2)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
+    An approval-required task NEVER auto-executes (it becomes ``awaiting_approval``).
   - ``ARIA_USER_ID`` sets the actor label — ATTRIBUTION ONLY, never authentication.
   - errors are typed code + sanitised detail — never raw exception text.
 """
@@ -30,7 +36,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from aria.goals import GoalService, GoalStore
+from aria.goals import ExecutionService, GoalService, GoalStore
 from aria.goals.models import TaskStatus
 from aria.goals.store import GoalNotFound, TaskNotFound
 from aria.llm import resolve_execution_mode
@@ -51,6 +57,14 @@ def _build_components():
     workspace_store = WorkspaceStore(execution_mode=mode)
     service = GoalService(store, workspace_store=workspace_store, execution_mode=mode, actor=actor())
     return store, workspace_store, service
+
+
+def _build_execution():
+    mode = resolve_execution_mode().value
+    store = GoalStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    execution = ExecutionService(store, workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    return store, workspace_store, execution
 
 
 def _close(*stores) -> None:
@@ -75,6 +89,15 @@ class UpdateTaskRequest(BaseModel):
     status: str
     blocked_by: list[str] | None = None
     output_artifact: str | None = None
+
+
+class ClarificationAnswerRequest(BaseModel):
+    answers: dict[str, str] = Field(default_factory=dict)
+    clarification_id: str | None = None
+
+
+class ProvideEvidenceRequest(BaseModel):
+    evidence_refs: list[str] = Field(min_length=1)
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -189,12 +212,56 @@ def update_task(goal_id: str, task_id: str, body: UpdateTaskRequest):
 
 @v3_router.get("/goals/{goal_id}/progress")
 def get_progress(goal_id: str):
-    store, workspace_store, service = _build_components()
+    store, workspace_store, execution = _build_execution()
     try:
-        if service.get_goal(goal_id) is None:
+        if store.get_goal(goal_id) is None:
             return _safe_error(404, "goal_not_found", "Unknown goal.")
-        progress = service.get_progress(goal_id, report=True)
-        return _dump(progress)
+        return _dump(execution.progress_report(goal_id))
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/execute-next")
+def execute_next(goal_id: str):
+    """Move the goal forward ONE governed planning step. No external writes; an
+    approval-required task becomes awaiting_approval (never auto-executed)."""
+    store, workspace_store, execution = _build_execution()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        return _dump(execution.execute_next(goal_id))
+    except Exception as exc:  # never leak raw text — class only, in body AND logs
+        _log.error("v3 execute_next error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not execute the next step.")
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/clarifications")
+def answer_clarification(goal_id: str, body: ClarificationAnswerRequest):
+    store, workspace_store, execution = _build_execution()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        clar = execution.submit_clarification(
+            goal_id, body.answers, clarification_id=body.clarification_id,
+        )
+        return _dump(clar)
+    except GoalNotFound:
+        return _safe_error(404, "clarification_not_found", "No open clarification for this goal.")
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/evidence")
+def provide_evidence(goal_id: str, body: ProvideEvidenceRequest):
+    """Record human-provided evidence references (ARIA never fabricates evidence)."""
+    store, workspace_store, execution = _build_execution()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        refs = execution.provide_evidence(goal_id, body.evidence_refs)
+        return {"goal_id": goal_id, "evidence": refs, "count": len(refs)}
     finally:
         _close(store, workspace_store)
 
@@ -204,8 +271,9 @@ def build_v3_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.1.0",
-                  description="V3.1 goal ownership — localhost pilot, planning only (no execution)")
+    app = FastAPI(title="ARIA V3 API", version="3.2.0",
+                  description=("V3.2 goal ownership + governed work-execution loop — localhost "
+                               "pilot, planning only (no external writes, no live connectors)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],

@@ -28,12 +28,25 @@ class GoalStatus(str, Enum):
 
 
 class TaskStatus(str, Enum):
-    planned = "planned"
+    planned = "planned"                       # ready / not-yet-started (V3.1 initial)
     in_progress = "in_progress"
     blocked = "blocked"
     awaiting_approval = "awaiting_approval"
+    needs_clarification = "needs_clarification"   # V3.2: missing context
+    needs_evidence = "needs_evidence"             # V3.2: required evidence not provided
+    failed = "failed"                             # V3.2: step failed safely
     completed = "completed"
     cancelled = "cancelled"
+
+
+class ExecutionOutcome(str, Enum):
+    """The outcome of a single governed execution step."""
+    completed_step = "completed_step"
+    blocked_for_clarification = "blocked_for_clarification"
+    blocked_for_evidence = "blocked_for_evidence"
+    blocked_for_approval = "blocked_for_approval"
+    failed_safely = "failed_safely"
+    no_actionable_task = "no_actionable_task"
 
 
 class OwnerType(str, Enum):
@@ -142,6 +155,77 @@ class GoalProgress(BaseModel):
     next_action: str | None = None
     last_update: datetime | None = None
     risk_summary: str = "low"
+
+
+class ExecutionStep(BaseModel):
+    """A single governed execution step. Records what ARIA chose to do, why, and the
+    safe outcome. PLANNING ONLY — ``produced_artifact`` is a planning artifact, never
+    an external write. ``safe_user_message`` is redacted (no raw exception text)."""
+    model_config = ConfigDict(frozen=True)
+
+    step_id: str
+    goal_id: str
+    task_id: str | None = None
+    workspace_id: str | None = None
+    selected_action: str
+    reason: str
+    required_evidence: list[str] = Field(default_factory=list)
+    approval_required: bool = False
+    produced_artifact: str | None = None
+    status_before: str | None = None
+    status_after: str | None = None
+    outcome: ExecutionOutcome
+    safe_user_message: str = ""
+    created_at: datetime
+
+
+class ClarificationRequest(BaseModel):
+    """A request for missing context. Stored + logged; answered by a human."""
+    model_config = ConfigDict(frozen=True)
+
+    clarification_id: str
+    goal_id: str
+    task_id: str | None = None
+    questions: list[str] = Field(default_factory=list)
+    answers: dict[str, str] | None = None
+    status: str = "open"                      # open | answered
+    created_at: datetime
+    answered_at: datetime | None = None
+
+
+class Deliverable(BaseModel):
+    """A tracked planning/progress deliverable reference (NOT an external write)."""
+    model_config = ConfigDict(frozen=True)
+
+    deliverable_id: str
+    goal_id: str
+    task_id: str | None = None
+    kind: str                                 # investigation_report | action_plan | manager_summary | ...
+    title: str
+    artifact_ref: str | None = None
+    created_at: datetime
+
+
+class ExecutionProgress(BaseModel):
+    """Rich execution-aware progress report, computed from persisted state."""
+    model_config = ConfigDict(frozen=True)
+
+    goal_id: str
+    goal_title: str
+    current_phase: str | None = None
+    total_tasks: int = 0                      # preserved from V3.1 GoalProgress
+    completed_tasks: int = 0
+    in_progress_tasks: int = 0
+    blocked_tasks: int = 0
+    pending_approvals: int = 0
+    evidence_needed: list[str] = Field(default_factory=list)
+    artifacts_created: list[str] = Field(default_factory=list)
+    open_clarifications: list[str] = Field(default_factory=list)
+    next_recommended_action: str | None = None
+    risk_summary: str = "low"
+    boundary_note: str = (
+        "Planning/control only. No external writes, no live connectors, no deployment."
+    )
 
 
 class GoalPlan(BaseModel):

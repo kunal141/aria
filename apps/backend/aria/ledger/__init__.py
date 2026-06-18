@@ -65,6 +65,14 @@ from aria.ledger.events import (
     TaskBoardCreated,
     TaskStatusUpdated,
     GoalProgressReported,
+    WorkStepStarted,
+    WorkStepCompleted,
+    WorkStepBlocked,
+    ClarificationRequested,
+    ClarificationAnswered,
+    EvidenceProvided,
+    ProgressReportCreated,
+    DeliverableTracked,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -118,6 +126,15 @@ __all__ = [
     "TaskBoardCreated",
     "TaskStatusUpdated",
     "GoalProgressReported",
+    # V3.2 — work-execution loop events
+    "WorkStepStarted",
+    "WorkStepCompleted",
+    "WorkStepBlocked",
+    "ClarificationRequested",
+    "ClarificationAnswered",
+    "EvidenceProvided",
+    "ProgressReportCreated",
+    "DeliverableTracked",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

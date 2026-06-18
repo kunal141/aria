@@ -17,13 +17,21 @@ from typing import Any
 
 from aria.ledger import (
     ActorType,
+    ClarificationAnswered,
+    ClarificationRequested,
+    DeliverableTracked,
+    EvidenceProvided,
     GoalCreated,
     GoalProgressReported,
     LedgerEventType,
     ProblemStatementGenerated,
+    ProgressReportCreated,
     RoadmapCreated,
     TaskBoardCreated,
     TaskStatusUpdated,
+    WorkStepBlocked,
+    WorkStepCompleted,
+    WorkStepStarted,
 )
 from aria.ledger.events import RiskLevel, make_envelope
 
@@ -34,6 +42,15 @@ _EVENT_CLASSES = {
     LedgerEventType.task_board_created:          TaskBoardCreated,
     LedgerEventType.task_status_updated:         TaskStatusUpdated,
     LedgerEventType.goal_progress_reported:      GoalProgressReported,
+    # V3.2 — work-execution loop
+    LedgerEventType.work_step_started:           WorkStepStarted,
+    LedgerEventType.work_step_completed:         WorkStepCompleted,
+    LedgerEventType.work_step_blocked:           WorkStepBlocked,
+    LedgerEventType.clarification_requested:     ClarificationRequested,
+    LedgerEventType.clarification_answered:      ClarificationAnswered,
+    LedgerEventType.evidence_provided:           EvidenceProvided,
+    LedgerEventType.progress_report_created:     ProgressReportCreated,
+    LedgerEventType.deliverable_tracked:         DeliverableTracked,
 }
 
 _RISK_LEVELS = {r.value: r for r in RiskLevel}
@@ -60,6 +77,11 @@ def build_goal_event(
     execution_mode: str | None = None,
     outcome: str | None = None,
     risk_level: str | RiskLevel | None = "low",
+    approval_required: bool | None = None,
+    evidence_status: str | None = None,
+    step_id: str | None = None,
+    clarification_id: str | None = None,
+    evidence_refs: list[str] | None = None,
 ):
     meta: dict[str, Any] = {}
     for key, value in (
@@ -69,6 +91,11 @@ def build_goal_event(
         ("workspace_id", workspace_id),
         ("scope", scope),
         ("execution_mode", execution_mode),
+        ("approval_required", approval_required),
+        ("evidence_status", evidence_status),
+        ("step_id", step_id),
+        ("clarification_id", clarification_id),
+        ("evidence_refs", evidence_refs),
     ):
         if value is not None:
             meta[key] = value
