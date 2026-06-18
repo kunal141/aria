@@ -59,6 +59,12 @@ from aria.ledger.events import (
     ReadOnlyConnectorInvoked,
     PilotReportCreated,
     DraftActionCreated,
+    GoalCreated,
+    ProblemStatementGenerated,
+    RoadmapCreated,
+    TaskBoardCreated,
+    TaskStatusUpdated,
+    GoalProgressReported,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -105,6 +111,13 @@ __all__ = [
     "ReadOnlyConnectorInvoked",
     "PilotReportCreated",
     "DraftActionCreated",
+    # V3.1 — goal ownership / planning events
+    "GoalCreated",
+    "ProblemStatementGenerated",
+    "RoadmapCreated",
+    "TaskBoardCreated",
+    "TaskStatusUpdated",
+    "GoalProgressReported",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

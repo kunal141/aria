@@ -152,6 +152,17 @@ class LedgerEventType(str, Enum):
     read_only_connector_invoked = "read_only_connector_invoked"
     pilot_report_created        = "pilot_report_created"
     draft_action_created        = "draft_action_created"
+    # ── V3.1: goal ownership / planning events ────────────────────────────────
+    # Genuinely new concepts (goal intake → roadmap → task board → progress).
+    # Planning only — NO execution, NO external write. Goal/roadmap/task
+    # identifiers ride in the sanitised ``metadata`` dict, so existing
+    # readers/metrics keep working and forward-compat is preserved.
+    goal_created                 = "goal_created"
+    problem_statement_generated  = "problem_statement_generated"
+    roadmap_created              = "roadmap_created"
+    task_board_created           = "task_board_created"
+    task_status_updated          = "task_status_updated"
+    goal_progress_reported       = "goal_progress_reported"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -688,6 +699,46 @@ class DraftActionCreated(LedgerEventBase):
     event_type: Literal[LedgerEventType.draft_action_created] = LedgerEventType.draft_action_created
 
 
+# ── V3.1: goal ownership / planning events ────────────────────────────────────
+# Minimal typed subclasses. Planning only — none of these execute work or write
+# externally. Goal/roadmap/task identifiers ride in the sanitised ``metadata`` dict.
+
+
+class GoalCreated(LedgerEventBase):
+    """A goal-intake record was created (a vague request became a structured goal)."""
+    event_type: Literal[LedgerEventType.goal_created] = LedgerEventType.goal_created
+
+
+class ProblemStatementGenerated(LedgerEventBase):
+    """A structured problem statement was generated for a goal."""
+    event_type: Literal[LedgerEventType.problem_statement_generated] = (
+        LedgerEventType.problem_statement_generated
+    )
+
+
+class RoadmapCreated(LedgerEventBase):
+    """A roadmap (phases / evidence / deliverables) was created for a goal."""
+    event_type: Literal[LedgerEventType.roadmap_created] = LedgerEventType.roadmap_created
+
+
+class TaskBoardCreated(LedgerEventBase):
+    """A planning task board (task list) was created from a roadmap."""
+    event_type: Literal[LedgerEventType.task_board_created] = LedgerEventType.task_board_created
+
+
+class TaskStatusUpdated(LedgerEventBase):
+    """A task's planning status changed (planned/in_progress/blocked/awaiting_approval/
+    completed/cancelled). Planning state only — no work was executed."""
+    event_type: Literal[LedgerEventType.task_status_updated] = LedgerEventType.task_status_updated
+
+
+class GoalProgressReported(LedgerEventBase):
+    """A goal-progress summary was produced (counts + current phase + next action)."""
+    event_type: Literal[LedgerEventType.goal_progress_reported] = (
+        LedgerEventType.goal_progress_reported
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -759,7 +810,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported,
     Field(discriminator="event_type"),
 ]
 

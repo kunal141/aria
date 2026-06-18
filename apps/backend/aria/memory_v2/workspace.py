@@ -237,6 +237,7 @@ class WorkspaceStore:
         add_artifact_refs: list[str] | None = None,
         add_citations: list[dict[str, Any]] | None = None,
         add_approval_refs: list[str] | None = None,
+        add_ledger_refs: list[str] | None = None,
         extra_events: list[tuple[LedgerEventType, dict[str, Any]]] | None = None,
         final_outcome: str | None = None, actor: str = "aria",
     ) -> Workspace:
@@ -272,6 +273,8 @@ class WorkspaceStore:
             approval_refs.extend(add_approval_refs)
         if add_ledger_ref:
             ledger_refs.append(add_ledger_ref)
+        if add_ledger_refs:
+            ledger_refs.extend(add_ledger_refs)
         new_status = status or ws.status
         new_outcome = final_outcome if final_outcome is not None else ws.final_outcome
         now = _now()
