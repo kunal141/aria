@@ -26,6 +26,7 @@ from aria.ledger import (
     ActorType,
     ApprovalRequested,
     Approved,
+    DraftActionCreated,
     LedgerEventType,
     MemoryApplied,
     MemoryDeleted,
@@ -33,6 +34,8 @@ from aria.ledger import (
     MemoryRecalled,
     MemoryRolledBack,
     MemorySuperseded,
+    PilotReportCreated,
+    ReadOnlyConnectorInvoked,
     Rejected,
     WorkspaceCreated,
     WorkspaceUpdated,
@@ -54,6 +57,9 @@ _EVENT_CLASSES = {
     LedgerEventType.rejected:           Rejected,
     LedgerEventType.workspace_created:  WorkspaceCreated,
     LedgerEventType.workspace_updated:  WorkspaceUpdated,
+    LedgerEventType.read_only_connector_invoked: ReadOnlyConnectorInvoked,
+    LedgerEventType.pilot_report_created:        PilotReportCreated,
+    LedgerEventType.draft_action_created:        DraftActionCreated,
 }
 
 
@@ -71,6 +77,9 @@ def build_memory_event(
     proposal_id: str | None = None,
     approval_id: str | None = None,
     workspace_id: str | None = None,
+    connector: str | None = None,
+    pilot: str | None = None,
+    draft: str | None = None,
     execution_mode: str | None = None,
     model: str | None = None,
     outcome: str | None = None,
@@ -83,6 +92,9 @@ def build_memory_event(
         ("memory_version", memory_version),
         ("proposal_id", proposal_id),
         ("workspace_id", workspace_id),
+        ("connector", connector),
+        ("pilot", pilot),
+        ("draft", draft),
         ("execution_mode", execution_mode),
     ):
         if value is not None:

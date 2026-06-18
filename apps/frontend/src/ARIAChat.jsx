@@ -83,6 +83,21 @@ export default function ARIAChat() {
         if (next[assistantIndex]) next[assistantIndex] = { ...next[assistantIndex], citation: data };
         return next;
       });
+    } else if (event === 'pilot.report') {
+      setMessages((prev) => {
+        const next = [...prev];
+        if (next[assistantIndex]) next[assistantIndex] = { ...next[assistantIndex], pilot: data, drafts: [] };
+        return next;
+      });
+    } else if (event === 'draft.created') {
+      setMessages((prev) => {
+        const next = [...prev];
+        if (next[assistantIndex]) {
+          const drafts = [...(next[assistantIndex].drafts || []), data];
+          next[assistantIndex] = { ...next[assistantIndex], drafts };
+        }
+        return next;
+      });
     } else if (event === 'workspace.updated') {
       setWorkspaceId(data.workspace_id);
     } else if (event === 'message.completed') {
@@ -216,6 +231,26 @@ export default function ARIAChat() {
             {m.citation && (
               <div data-testid="citation" className="mt-2 text-xs text-gray-500 border-l-2 border-gray-300 pl-2">
                 memory {m.citation.memory_id} v{m.citation.version} — {m.citation.retrieval_reason}
+              </div>
+            )}
+
+            {m.pilot && (
+              <div data-testid="pilot-report" className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <div className="text-xs font-semibold text-emerald-800">
+                  {m.pilot.title} ({m.pilot.pilot}) · mode: {m.pilot.connector_mode}
+                </div>
+                <div className="text-xs text-emerald-700">{m.pilot.summary}</div>
+                {m.pilot.evidence_references && m.pilot.evidence_references.length > 0 && (
+                  <div data-testid="pilot-evidence" className="text-xs text-emerald-700 mt-1">
+                    Evidence: {m.pilot.evidence_references.join(', ')}
+                  </div>
+                )}
+                <div data-testid="pilot-boundary" className="text-xs text-gray-500 mt-1">{m.pilot.boundary}</div>
+                {(m.drafts || []).map((d) => (
+                  <div key={d.draft_id} data-testid="draft-chip" className="text-xs text-amber-800 mt-1">
+                    [{d.kind}] {d.title} — {d.boundary}
+                  </div>
+                ))}
               </div>
             )}
           </div>

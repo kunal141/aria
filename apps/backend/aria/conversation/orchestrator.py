@@ -67,10 +67,14 @@ class ConversationOrchestrator:
         *,
         writer: Any = None,
         execution_mode: str = "offline_mock",
+        pilot_service: Any = None,
     ) -> None:
         self._store = store
         self._writer = writer
         self._execution_mode = execution_mode
+        # Optional Week 34 read-only pilot layer. When absent (Week 32/33 default),
+        # run_workflow behaves exactly as before — purely additive.
+        self._pilot_service = pilot_service
 
     # ── Session ──────────────────────────────────────────────────────────────
 
@@ -108,6 +112,17 @@ class ConversationOrchestrator:
                 payload={"intent": "recall", "table": table, "field": fieldname},
             )
 
+        # 2.5) An analytics/events investigation → run_workflow (analytics pilot).
+        #      Checked before generic workflow classification because the keyword
+        #      router would misroute "story_events" to jira (via "story").
+        if self._looks_like_analytics(stripped):
+            return OrchestratorDecision(
+                action=OrchestratorAction.run_workflow,
+                rationale="Input requests an analytics/events-data investigation.",
+                confidence=0.75, correlation_id=correlation_id,
+                payload={"task_type": "analytics_qa"},
+            )
+
         # 3) A workflow request → run_workflow (governed V1 graph).
         task_type = self._classify_workflow(stripped)
         if task_type is not None and task_type != "general":
@@ -140,6 +155,25 @@ class ConversationOrchestrator:
 
         task_type, _reason = _keyword_classify(text)
         return task_type
+
+    @staticmethod
+    def _looks_like_analytics(text: str) -> bool:
+        """Detect an analytics/events-data investigation request (Week 34).
+
+        Deliberately specific to avoid re-routing Week 32/33 prompts: it matches a
+        known events table, an ``event_type`` distribution/values/schema question,
+        or a "what's wrong in the events (data) table" investigation.
+        """
+        low = text.lower()
+        if "story_events" in low:
+            return True
+        if "event_type" in low and any(k in low for k in ("distribution", "values", "schema", "taxonomy")):
+            return True
+        if "events" in low and "table" in low and any(
+            k in low for k in ("wrong", "check", "schema", "distribution", "quality", "investigate")
+        ):
+            return True
+        return False
 
     @staticmethod
     def _is_vague(text: str) -> bool:
@@ -211,6 +245,28 @@ class ConversationOrchestrator:
     def _do_run_workflow(
         self, decision: OrchestratorDecision, session: ChatSession, text: str, allow_llm: bool,
     ) -> OrchestratorTurnResult:
+        # Week 34: a pilot task type → run the read-only pilot AS the workflow.
+        # It executes no tools, makes no external writes, and enforces its own
+        # evidence discipline (counts need fixture evidence, memory only explains
+        # values). It runs behind the governed run_workflow decision — we do NOT
+        # invoke the V1 skill graph (which carries write-ish side effects like
+        # notifications) for a read-only investigation.
+        if self._pilot_service is not None:
+            task_type = decision.payload.get("task_type")
+            pilot_result = self._pilot_service.maybe_run(task_type, text, session=session)
+            if pilot_result is not None:
+                self._emit(
+                    LedgerEventType.workflow_invoked, task_id=f"wf-{uuid.uuid4().hex}", actor="aria",
+                    actor_type=ActorType.aria, session_id=session.session_id,
+                    execution_mode=self._execution_mode, outcome=f"pilot:{pilot_result.pilot.value}",
+                )
+                return OrchestratorTurnResult(
+                    decision=decision, response=pilot_result.report.render(),
+                    workflow_result={"task_type": task_type, "pilot": pilot_result.pilot.value},
+                    extras={"pilot": pilot_result},
+                )
+
+        # Non-pilot run_workflow → governed V1 graph boundary (unchanged).
         workflow_result = self.run_workflow(text, allow_llm=allow_llm, session_id=session.session_id)
         return OrchestratorTurnResult(
             decision=decision, workflow_result=workflow_result,

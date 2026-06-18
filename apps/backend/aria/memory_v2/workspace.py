@@ -174,7 +174,10 @@ class WorkspaceStore:
 
     def flush_outbox(self, writer: Any = None) -> int:
         conn = self._connect()
-        target = writer or self._writer
+        # NB: use ``is not None`` — a ``LedgerWriter`` defines ``__len__`` so a
+        # fresh (empty) writer is falsy; ``writer or self._writer`` would wrongly
+        # fall back to ``self._writer`` and silently drop the recovery target.
+        target = writer if writer is not None else self._writer
         if target is None:
             from aria.ledger.writer import get_default_writer
 
@@ -231,8 +234,22 @@ class WorkspaceStore:
         self, workspace_id: str, *, status: str | None = None,
         add_artifact_ref: str | None = None, add_citation: dict[str, Any] | None = None,
         add_approval_ref: str | None = None, add_ledger_ref: str | None = None,
+        add_artifact_refs: list[str] | None = None,
+        add_citations: list[dict[str, Any]] | None = None,
+        add_approval_refs: list[str] | None = None,
+        extra_events: list[tuple[LedgerEventType, dict[str, Any]]] | None = None,
         final_outcome: str | None = None, actor: str = "aria",
     ) -> Workspace:
+        """Record references on a workspace in ONE transaction (one workspace_updated
+        event). Singular ``add_*`` params (Week 33) and plural ``add_*s`` params
+        (Week 34 pilots, to record artifact+citations+drafts in one update) are both
+        supported.
+
+        ``extra_events`` (Week 34): additional ledger events enqueued IN THE SAME
+        transaction as the workspace update, so the artifact reference and those
+        audit events (e.g. pilot_report_created / draft_action_created) commit
+        atomically and survive a ledger outage via the durable outbox — they can
+        never diverge from the persisted artifact (the P1 fix)."""
         conn = self._connect()
         ws = self.get_workspace(workspace_id)
         if ws is None:
@@ -243,10 +260,16 @@ class WorkspaceStore:
         ledger_refs = list(ws.ledger_refs)
         if add_artifact_ref:
             artifact_refs.append(add_artifact_ref)
+        if add_artifact_refs:
+            artifact_refs.extend(add_artifact_refs)
         if add_citation:
             citations.append(add_citation)
+        if add_citations:
+            citations.extend(add_citations)
         if add_approval_ref:
             approval_refs.append(add_approval_ref)
+        if add_approval_refs:
+            approval_refs.extend(add_approval_refs)
         if add_ledger_ref:
             ledger_refs.append(add_ledger_ref)
         new_status = status or ws.status
@@ -266,8 +289,21 @@ class WorkspaceStore:
                 workspace_id=workspace_id, correlation_id=ws.correlation_id or workspace_id,
                 outcome=new_status,
             )
+            # Atomic, ordered audit for pilot events (P1): enqueued AFTER the
+            # workspace_updated event, in the SAME transaction as the artifact ref.
+            for event_type, fields in (extra_events or []):
+                self._enqueue(conn, event_type, **fields)
         self.flush_outbox()
         return self.get_workspace(workspace_id)  # type: ignore[return-value]
+
+    def emit_event(self, event_type: LedgerEventType, **fields) -> None:
+        """Durably record a standalone audit event through the workspace outbox
+        (transaction + flush). Used for ``read_only_connector_invoked`` so the
+        pilot's connector-read trace shares the same durable, ordered channel."""
+        conn = self._connect()
+        with conn:
+            self._enqueue(conn, event_type, **fields)
+        self.flush_outbox()
 
     def get_workspace(self, workspace_id: str) -> Workspace | None:
         row = self._connect().execute(

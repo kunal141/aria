@@ -92,17 +92,26 @@ def _log(payload: NotificationPayload, result: DeliveryResult) -> None:
 
 # ── Teams Delivery (mock) ──────────────────────────────────────────────────────
 
+def _safe_print(text: str) -> None:
+    """Print without crashing on consoles whose encoding (e.g. Windows cp1252)
+    cannot represent the box/emoji glyphs — fall back to an ASCII-safe rendering."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", "replace").decode("ascii"))
+
+
 def _teams_send(payload: NotificationPayload) -> None:
     """Mock Teams delivery — prints the card to console."""
     bar = "═" * 60
     severity_icon = {"critical": "🚨", "high": "⚠️ ", "medium": "ℹ️ ", "low": "📋"}.get(payload.severity, "•")
-    print(f"\n{bar}")
-    print(f"  [TEAMS → {payload.channel}]  {severity_icon} {payload.title}")
-    print(f"  {payload.body}")
+    _safe_print(f"\n{bar}")
+    _safe_print(f"  [TEAMS → {payload.channel}]  {severity_icon} {payload.title}")
+    _safe_print(f"  {payload.body}")
     if payload.pipeline:
-        print(f"  Pipeline: {payload.pipeline}")
-    print(f"  Source: {payload.source}  |  Task: {payload.task_id[:12]}...")
-    print(f"  {bar}\n")
+        _safe_print(f"  Pipeline: {payload.pipeline}")
+    _safe_print(f"  Source: {payload.source}  |  Task: {payload.task_id[:12]}...")
+    _safe_print(f"  {bar}\n")
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────

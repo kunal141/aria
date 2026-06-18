@@ -33,6 +33,8 @@ EVENT_TYPES = (
     "message.started", "token", "workflow.started", "workflow.completed",
     "memory.proposed", "approval.required", "memory.applied", "memory.recalled",
     "artifact.created", "workspace.updated", "message.completed", "error",
+    # Week 34 pilots:
+    "pilot.report", "draft.created",
 )
 
 
@@ -91,6 +93,8 @@ def stream_turn(
 
     action = result.decision.action
 
+    pilot = result.extras.get("pilot")
+
     # ── Structural events (deterministic per decision type) ──────────────────
     if action is OrchestratorAction.run_workflow:
         wf = result.workflow_result or {}
@@ -99,6 +103,23 @@ def stream_turn(
         yield _event("workflow.completed", {"task_type": task_type})
         if wf.get("skill_output"):
             yield _event("artifact.created", {"artifact_type": task_type})
+        if pilot is not None:
+            yield _event("pilot.report", {
+                "pilot": pilot.pilot.value,
+                "title": pilot.report.title,
+                "summary": pilot.report.summary,
+                "connector_mode": pilot.connector_mode,
+                "evidence_references": [e.source for e in pilot.report.evidence_references],
+                "memory_citations": pilot.report.memory_citations,
+                "boundary": pilot.report.boundary,
+                "workspace_id": pilot.workspace_id,
+            })
+            for d in pilot.report.drafts:
+                # Draft is a DATA artifact only — never posted/sent/created.
+                yield _event("draft.created", {
+                    "draft_id": d.draft_id, "kind": d.kind.value, "title": d.title,
+                    "boundary": d.boundary,
+                })
     elif action is OrchestratorAction.propose_memory and result.proposal is not None:
         yield _event("memory.proposed", {
             "proposal_id": result.proposal.proposal_id,
@@ -114,7 +135,11 @@ def stream_turn(
 
     # ── Persistent workspace for serious turns only ──────────────────────────
     workspace_id: str | None = None
-    if workspace_store is not None and _is_serious(result):
+    if pilot is not None and pilot.workspace_id:
+        # The pilot already created/updated the workspace (with its report artifact).
+        workspace_id = pilot.workspace_id
+        yield _event("workspace.updated", {"workspace_id": workspace_id})
+    elif workspace_store is not None and _is_serious(result):
         workspace_id = _touch_workspace(workspace_store, session, result, actor)
         yield _event("workspace.updated", {"workspace_id": workspace_id})
 

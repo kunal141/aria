@@ -39,6 +39,7 @@ from aria.conversation.streaming import stream_turn
 from aria.llm import resolve_execution_mode
 from aria.memory_v2.store import DomainMemoryStore, MemoryNotFound
 from aria.memory_v2.workspace import WorkspaceStore
+from aria.pilots import PilotService
 
 _log = logging.getLogger("aria.api.v2")
 
@@ -66,7 +67,8 @@ def _build_components():
     mode = resolve_execution_mode().value
     store = DomainMemoryStore(execution_mode=mode)
     workspace_store = WorkspaceStore(execution_mode=mode)
-    orchestrator = ConversationOrchestrator(store, execution_mode=mode)
+    pilot_service = PilotService(store, workspace_store, execution_mode=mode)
+    orchestrator = ConversationOrchestrator(store, execution_mode=mode, pilot_service=pilot_service)
     approval = ApprovalService(orchestrator)
     return store, workspace_store, orchestrator, approval
 

@@ -147,6 +147,11 @@ class LedgerEventType(str, Enum):
     # api/approval event types are added. Workspace identifiers ride in metadata.
     workspace_created    = "workspace_created"
     workspace_updated    = "workspace_updated"
+    # ── Week 34: read-only pilots (PR / CI-CD / Analytics) ────────────────────
+    # Genuinely new concepts. Drafts are data artifacts only (no external write).
+    read_only_connector_invoked = "read_only_connector_invoked"
+    pilot_report_created        = "pilot_report_created"
+    draft_action_created        = "draft_action_created"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -665,6 +670,24 @@ class WorkspaceUpdated(LedgerEventBase):
     event_type: Literal[LedgerEventType.workspace_updated] = LedgerEventType.workspace_updated
 
 
+class ReadOnlyConnectorInvoked(LedgerEventBase):
+    """A read-only connector (fixture by default) was queried by a pilot (Week 34)."""
+    event_type: Literal[LedgerEventType.read_only_connector_invoked] = (
+        LedgerEventType.read_only_connector_invoked
+    )
+
+
+class PilotReportCreated(LedgerEventBase):
+    """A read-only pilot produced an investigation report artifact."""
+    event_type: Literal[LedgerEventType.pilot_report_created] = LedgerEventType.pilot_report_created
+
+
+class DraftActionCreated(LedgerEventBase):
+    """A draft-only action (Jira draft / Teams preview / PR comment draft) was
+    created as a data artifact — NOT posted/sent/created in any external system."""
+    event_type: Literal[LedgerEventType.draft_action_created] = LedgerEventType.draft_action_created
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -736,7 +759,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated,
     Field(discriminator="event_type"),
 ]
 

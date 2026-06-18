@@ -56,6 +56,9 @@ from aria.ledger.events import (
     WorkflowInvoked,
     WorkspaceCreated,
     WorkspaceUpdated,
+    ReadOnlyConnectorInvoked,
+    PilotReportCreated,
+    DraftActionCreated,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -99,6 +102,9 @@ __all__ = [
     "MemoryRolledBack",
     "WorkspaceCreated",
     "WorkspaceUpdated",
+    "ReadOnlyConnectorInvoked",
+    "PilotReportCreated",
+    "DraftActionCreated",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

@@ -71,6 +71,23 @@ const ERROR_STREAM = [
   { event: 'error', data: { error_type: 'RuntimeError', detail: 'redacted' } },
 ];
 
+const PILOT_STREAM = [
+  { event: 'message.started', data: { session_id: 'sess-1' } },
+  { event: 'workflow.started', data: { task_type: 'pr_review' } },
+  { event: 'workflow.completed', data: { task_type: 'pr_review' } },
+  { event: 'pilot.report', data: {
+      pilot: 'pr_review', title: 'PR Review Report', summary: 'PR PR-481: 4 files, 3 risky.',
+      connector_mode: 'fixtures', evidence_references: ['fixture:pr:PR-481'],
+      memory_citations: [], boundary: 'Read-only PR review. Draft-only, nothing posted.',
+      workspace_id: 'ws-1',
+  } },
+  { event: 'draft.created', data: { draft_id: 'd1', kind: 'pr_comment', title: 'Review: ranker.py', boundary: 'Draft only. Not posted. No external write executed.' } },
+  { event: 'workspace.updated', data: { workspace_id: 'ws-1' } },
+  { event: 'token', data: { text: 'PR ' } },
+  { event: 'token', data: { text: 'report.' } },
+  { event: 'message.completed', data: { decision: 'run_workflow', response: 'PR report.', citation: null } },
+];
+
 beforeEach(() => { vi.stubGlobal('fetch', vi.fn()); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -150,5 +167,20 @@ describe('ARIAChat — messaging + streaming', () => {
     await waitFor(() => expect(screen.getByTestId('chat-error')).toBeInTheDocument());
     expect(screen.getByTestId('chat-error')).toHaveTextContent('RuntimeError');
     expect(screen.getByTestId('chat-error')).toHaveTextContent('redacted');
+  });
+
+  it('renders a pilot report with evidence, boundary, and draft chips', async () => {
+    const user = userEvent.setup();
+    await renderAndStart(routedFetch({ streamLines: PILOT_STREAM }));
+
+    await user.type(screen.getByTestId('chat-input'), 'Review this PR');
+    await user.click(screen.getByTestId('send-button'));
+
+    await waitFor(() => expect(screen.getByTestId('pilot-report')).toBeInTheDocument());
+    expect(screen.getByTestId('pilot-report')).toHaveTextContent('PR Review Report');
+    expect(screen.getByTestId('pilot-evidence')).toHaveTextContent('fixture:pr:PR-481');
+    expect(screen.getByTestId('pilot-boundary')).toHaveTextContent('Draft-only');
+    expect(screen.getByTestId('draft-chip')).toHaveTextContent('Not posted');
+    expect(screen.getByTestId('workspace-id')).toHaveTextContent('ws-1');
   });
 });

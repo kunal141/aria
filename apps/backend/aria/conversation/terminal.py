@@ -28,6 +28,8 @@ import os
 from aria.conversation.orchestrator import ConversationOrchestrator
 from aria.llm import ExecutionMode, configured_local_model, resolve_execution_mode
 from aria.memory_v2.store import DomainMemoryStore
+from aria.memory_v2.workspace import WorkspaceStore
+from aria.pilots import PilotService
 
 EXIT_WORDS = frozenset({"exit", "quit"})
 
@@ -52,7 +54,11 @@ def session_repl(read=input, write=print, *, mode=None, scope: str = "analytics.
     owner = _owner()
 
     store = DomainMemoryStore(execution_mode=resolved.value)
-    orch = ConversationOrchestrator(store, execution_mode=resolved.value)
+    workspace_store = WorkspaceStore(execution_mode=resolved.value)
+    pilot_service = PilotService(store, workspace_store, execution_mode=resolved.value)
+    orch = ConversationOrchestrator(
+        store, execution_mode=resolved.value, pilot_service=pilot_service,
+    )
     session = orch.start_session(owner=owner, scope=scope)
 
     write("ARIA Conversation (Week 32) — multi-turn, memory-aware")
