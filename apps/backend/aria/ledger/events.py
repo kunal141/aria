@@ -175,6 +175,16 @@ class LedgerEventType(str, Enum):
     evidence_provided            = "evidence_provided"
     progress_report_created      = "progress_report_created"
     deliverable_tracked          = "deliverable_tracked"
+    # ── V3.3: dynamic agent workforce (DRY-RUN / fixture-first) events ─────────
+    # Planning + DRY-RUN only — no real agent process is spawned, no network, no
+    # external write. Agent/assignment identifiers ride in the sanitised metadata.
+    agent_workforce_planned      = "agent_workforce_planned"
+    agent_assignment_created     = "agent_assignment_created"
+    agent_assignment_started     = "agent_assignment_started"
+    agent_assignment_completed   = "agent_assignment_completed"
+    agent_assignment_blocked     = "agent_assignment_blocked"
+    agent_assignment_cancelled   = "agent_assignment_cancelled"
+    agent_result_merged          = "agent_result_merged"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -807,6 +817,59 @@ class DeliverableTracked(LedgerEventBase):
     event_type: Literal[LedgerEventType.deliverable_tracked] = LedgerEventType.deliverable_tracked
 
 
+# ── V3.3: dynamic agent workforce (DRY-RUN) events ────────────────────────────
+# Minimal typed subclasses. Planning + dry-run only — no real agent process, no
+# network, no external write. Agent/assignment ids ride in the sanitised metadata.
+
+
+class AgentWorkforcePlanned(LedgerEventBase):
+    """ARIA decomposed a goal into a bounded set of specialist agent briefs."""
+    event_type: Literal[LedgerEventType.agent_workforce_planned] = (
+        LedgerEventType.agent_workforce_planned
+    )
+
+
+class AgentAssignmentCreated(LedgerEventBase):
+    """A specialist agent assignment was created (planned, not yet run)."""
+    event_type: Literal[LedgerEventType.agent_assignment_created] = (
+        LedgerEventType.agent_assignment_created
+    )
+
+
+class AgentAssignmentStarted(LedgerEventBase):
+    """A specialist agent assignment began a DRY-RUN (deterministic, no process)."""
+    event_type: Literal[LedgerEventType.agent_assignment_started] = (
+        LedgerEventType.agent_assignment_started
+    )
+
+
+class AgentAssignmentCompleted(LedgerEventBase):
+    """A specialist agent dry-run completed and produced a findings artifact."""
+    event_type: Literal[LedgerEventType.agent_assignment_completed] = (
+        LedgerEventType.agent_assignment_completed
+    )
+
+
+class AgentAssignmentBlocked(LedgerEventBase):
+    """A specialist agent dry-run was blocked (evidence / approval) — no findings."""
+    event_type: Literal[LedgerEventType.agent_assignment_blocked] = (
+        LedgerEventType.agent_assignment_blocked
+    )
+
+
+class AgentAssignmentCancelled(LedgerEventBase):
+    """A specialist agent assignment was cancelled / killed (supervision). It
+    produces NO final findings as if completed."""
+    event_type: Literal[LedgerEventType.agent_assignment_cancelled] = (
+        LedgerEventType.agent_assignment_cancelled
+    )
+
+
+class AgentResultMerged(LedgerEventBase):
+    """Completed agent outputs were merged into one goal-level summary."""
+    event_type: Literal[LedgerEventType.agent_result_merged] = LedgerEventType.agent_result_merged
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -878,7 +941,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged,
     Field(discriminator="event_type"),
 ]
 

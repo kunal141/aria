@@ -73,6 +73,13 @@ from aria.ledger.events import (
     EvidenceProvided,
     ProgressReportCreated,
     DeliverableTracked,
+    AgentWorkforcePlanned,
+    AgentAssignmentCreated,
+    AgentAssignmentStarted,
+    AgentAssignmentCompleted,
+    AgentAssignmentBlocked,
+    AgentAssignmentCancelled,
+    AgentResultMerged,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -135,6 +142,14 @@ __all__ = [
     "EvidenceProvided",
     "ProgressReportCreated",
     "DeliverableTracked",
+    # V3.3 — dynamic agent workforce (dry-run) events
+    "AgentWorkforcePlanned",
+    "AgentAssignmentCreated",
+    "AgentAssignmentStarted",
+    "AgentAssignmentCompleted",
+    "AgentAssignmentBlocked",
+    "AgentAssignmentCancelled",
+    "AgentResultMerged",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

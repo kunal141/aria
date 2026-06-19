@@ -228,6 +228,115 @@ class ExecutionProgress(BaseModel):
     )
 
 
+class AgentStatus(str, Enum):
+    planned = "planned"
+    ready = "ready"
+    running = "running"
+    completed = "completed"
+    blocked = "blocked"
+    failed = "failed"
+    cancelled = "cancelled"
+    killed = "killed"
+
+
+# Statuses that mean an assignment did NOT produce trustworthy final findings.
+_NON_FINDINGS_AGENT_STATUSES = frozenset({
+    AgentStatus.blocked, AgentStatus.failed, AgentStatus.cancelled, AgentStatus.killed,
+    AgentStatus.planned, AgentStatus.ready, AgentStatus.running,
+})
+
+
+class AgentBrief(BaseModel):
+    """A bounded specialist-agent brief. Defines a NARROW objective and explicit
+    permission boundaries. V3.3 is DRY-RUN only — a brief is a plan, never a live
+    process. Tools are read-only; write tools are always forbidden."""
+    model_config = ConfigDict(frozen=True)
+
+    agent_id: str
+    goal_id: str
+    task_id: str | None = None
+    name: str
+    role: str
+    objective: str
+    allowed_context: list[str] = Field(default_factory=list)
+    forbidden_context: list[str] = Field(default_factory=list)
+    allowed_tools: list[str] = Field(default_factory=list)
+    forbidden_tools: list[str] = Field(default_factory=list)
+    required_inputs: list[str] = Field(default_factory=list)
+    expected_output_schema: str = "AgentFindings"
+    approval_required: bool = False
+    risk_level: str = "low"
+    time_limit_seconds: int = 60
+    cost_limit_units: int = 1
+    status: AgentStatus = AgentStatus.planned
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentAssignment(BaseModel):
+    """A DRY-RUN execution record for an agent brief, with supervision metadata.
+    A cancelled/killed assignment must NOT present findings as if completed."""
+    model_config = ConfigDict(frozen=True)
+
+    assignment_id: str
+    agent_id: str
+    goal_id: str
+    task_id: str | None = None
+    workspace_id: str | None = None
+    input_summary: str = ""
+    output_summary: str = ""
+    output_artifact: str | None = None
+    status: AgentStatus = AgentStatus.planned
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_reason: str | None = None
+    ledger_refs: list[str] = Field(default_factory=list)
+    # Supervision / kill-switch metadata
+    kill_reason: str | None = None
+    max_runtime_seconds: int = 60
+    max_cost_units: int = 1
+    risk_level: str = "low"
+    approval_required: bool = False
+    supervisor: str | None = None
+    stopped_at: datetime | None = None
+
+    @property
+    def has_findings(self) -> bool:
+        return self.status is AgentStatus.completed
+
+
+class AgentMergeResult(BaseModel):
+    """A goal-level merge of specialist agent outputs. Findings are NEVER invented
+    for blocked/cancelled agents — only completed agents contribute findings."""
+    model_config = ConfigDict(frozen=True)
+
+    goal_id: str
+    agents_run: int = 0
+    completed_assignments: int = 0
+    blocked_assignments: int = 0
+    cancelled_assignments: int = 0
+    key_findings: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    memory_citations: list[str] = Field(default_factory=list)
+    deliverables: list[str] = Field(default_factory=list)
+    draft_actions: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    next_recommended_action: str | None = None
+    boundary_note: str = (
+        "Dry-run / fixture-first. No real agent process, no external writes, no live connectors."
+    )
+
+
+class AgentPlan(BaseModel):
+    """The planned workforce: briefs + their (planned) assignments."""
+    model_config = ConfigDict(frozen=True)
+
+    goal_id: str
+    briefs: list[AgentBrief] = Field(default_factory=list)
+    assignments: list[AgentAssignment] = Field(default_factory=list)
+
+
 class GoalPlan(BaseModel):
     """Convenience bundle returned when a goal is created: the intake, its roadmap,
     its task list, and the linked workspace id."""

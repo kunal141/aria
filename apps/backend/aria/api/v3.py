@@ -18,6 +18,11 @@ Endpoints:
     POST  /api/v3/goals/{goal_id}/execute-next           (V3.2)
     POST  /api/v3/goals/{goal_id}/clarifications         (V3.2)
     POST  /api/v3/goals/{goal_id}/evidence               (V3.2)
+    POST  /api/v3/goals/{goal_id}/agents/plan            (V3.3 dry-run workforce)
+    POST  /api/v3/goals/{goal_id}/agents/run-dry         (V3.3)
+    GET   /api/v3/goals/{goal_id}/agents                 (V3.3)
+    GET   /api/v3/goals/{goal_id}/agents/summary         (V3.3)
+    POST  /api/v3/goals/{goal_id}/agents/{assignment_id}/cancel  (V3.3)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -36,7 +41,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from aria.goals import ExecutionService, GoalService, GoalStore
+from aria.goals import AgentWorkforceService, ExecutionService, GoalService, GoalStore
 from aria.goals.models import TaskStatus
 from aria.goals.store import GoalNotFound, TaskNotFound
 from aria.llm import resolve_execution_mode
@@ -65,6 +70,14 @@ def _build_execution():
     workspace_store = WorkspaceStore(execution_mode=mode)
     execution = ExecutionService(store, workspace_store=workspace_store, execution_mode=mode, actor=actor())
     return store, workspace_store, execution
+
+
+def _build_agents():
+    mode = resolve_execution_mode().value
+    store = GoalStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    agents = AgentWorkforceService(store, workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    return store, workspace_store, agents
 
 
 def _close(*stores) -> None:
@@ -98,6 +111,11 @@ class ClarificationAnswerRequest(BaseModel):
 
 class ProvideEvidenceRequest(BaseModel):
     evidence_refs: list[str] = Field(min_length=1)
+
+
+class CancelAssignmentRequest(BaseModel):
+    reason: str = "cancelled by supervisor"
+    killed: bool = False
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -266,14 +284,100 @@ def provide_evidence(goal_id: str, body: ProvideEvidenceRequest):
         _close(store, workspace_store)
 
 
+# ── V3.3: dynamic agent workforce (DRY-RUN / fixture-first) ──────────────────
+
+
+@v3_router.post("/goals/{goal_id}/agents/plan")
+def plan_agents(goal_id: str):
+    """Decompose the goal into a bounded set of specialist agent briefs (planning
+    only — no agent process is spawned)."""
+    store, workspace_store, agents = _build_agents()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        plan = agents.plan(goal_id)
+        return JSONResponse(status_code=201, content={
+            "goal_id": goal_id,
+            "briefs": [_dump(b) for b in plan.briefs],
+            "assignments": [_dump(a) for a in plan.assignments],
+            "count": len(plan.briefs),
+        })
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 plan_agents error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not plan the agent workforce.")
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/agents/run-dry")
+def run_dry_agents(goal_id: str):
+    """Run the planned agents in a deterministic DRY-RUN (no external process / write)
+    and return the merged result."""
+    store, workspace_store, agents = _build_agents()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        return _dump(agents.run_dry(goal_id))
+    except Exception as exc:
+        _log.error("v3 run_dry_agents error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not run the agent workforce.")
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.get("/goals/{goal_id}/agents")
+def list_agents(goal_id: str):
+    store, workspace_store, agents = _build_agents()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        briefs = agents.get_briefs(goal_id)
+        assignments = agents.get_assignments(goal_id)
+        return {
+            "goal_id": goal_id,
+            "briefs": [_dump(b) for b in briefs],
+            "assignments": [_dump(a) for a in assignments],
+            "count": len(briefs),
+        }
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.get("/goals/{goal_id}/agents/summary")
+def agents_summary(goal_id: str):
+    store, workspace_store, agents = _build_agents()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        return _dump(agents.summary(goal_id))
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/agents/{assignment_id}/cancel")
+def cancel_agent(goal_id: str, assignment_id: str, body: CancelAssignmentRequest):
+    store, workspace_store, agents = _build_agents()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        a = store.get_agent_assignment(assignment_id)
+        if a is None or a.goal_id != goal_id:
+            return _safe_error(404, "assignment_not_found", "Unknown assignment for this goal.")
+        updated = agents.cancel_assignment(assignment_id, reason=body.reason, killed=body.killed)
+        return _dump(updated)
+    finally:
+        _close(store, workspace_store)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.2.0",
-                  description=("V3.2 goal ownership + governed work-execution loop — localhost "
-                               "pilot, planning only (no external writes, no live connectors)"))
+    app = FastAPI(title="ARIA V3 API", version="3.3.0",
+                  description=("V3.1–V3.3 goal ownership + governed work-execution loop + dry-run "
+                               "agent workforce — localhost pilot, planning/dry-run only (no "
+                               "external writes, no live connectors, no real agent process)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],

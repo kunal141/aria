@@ -6,9 +6,15 @@ phased roadmap, and a task board, with optional V2-workspace integration and ful
 Work Ledger tracing. PLANNING ONLY — no execution, no external writes, fixtures and
 governance boundaries from V2 fully preserved.
 """
+from aria.goals.agents import AgentWorkforceService
 from aria.goals.execution import ExecutionService
 from aria.goals.intake import build_roadmap, run_intake
 from aria.goals.models import (
+    AgentAssignment,
+    AgentBrief,
+    AgentMergeResult,
+    AgentPlan,
+    AgentStatus,
     ClarificationRequest,
     Deliverable,
     ExecutionOutcome,
@@ -48,6 +54,12 @@ __all__ = [
     "ExecutionStep",
     "ExecutionOutcome",
     "ExecutionProgress",
+    "AgentWorkforceService",
+    "AgentBrief",
+    "AgentAssignment",
+    "AgentStatus",
+    "AgentMergeResult",
+    "AgentPlan",
     "ClarificationRequest",
     "Deliverable",
     "GoalService",

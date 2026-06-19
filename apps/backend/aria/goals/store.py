@@ -25,6 +25,9 @@ from typing import Any
 from aria.goals.audit import build_goal_event
 from aria.goals.sanitize import sanitize_goal_intake, sanitize_text
 from aria.goals.models import (
+    AgentAssignment,
+    AgentBrief,
+    AgentStatus,
     ClarificationRequest,
     Deliverable,
     ExecutionOutcome,
@@ -140,6 +143,54 @@ CREATE TABLE IF NOT EXISTS deliverable (
     created_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_deliverable_goal ON deliverable(goal_id);
+CREATE TABLE IF NOT EXISTS agent_brief (
+    agent_id               TEXT PRIMARY KEY,
+    goal_id                TEXT NOT NULL,
+    task_id                TEXT,
+    name                   TEXT NOT NULL,
+    role                   TEXT NOT NULL,
+    objective              TEXT NOT NULL,
+    allowed_context        TEXT NOT NULL DEFAULT '[]',
+    forbidden_context      TEXT NOT NULL DEFAULT '[]',
+    allowed_tools          TEXT NOT NULL DEFAULT '[]',
+    forbidden_tools        TEXT NOT NULL DEFAULT '[]',
+    required_inputs        TEXT NOT NULL DEFAULT '[]',
+    expected_output_schema TEXT NOT NULL DEFAULT 'AgentFindings',
+    approval_required      INTEGER NOT NULL DEFAULT 0,
+    risk_level             TEXT NOT NULL DEFAULT 'low',
+    time_limit_seconds     INTEGER NOT NULL DEFAULT 60,
+    cost_limit_units       INTEGER NOT NULL DEFAULT 1,
+    status                 TEXT NOT NULL DEFAULT 'planned',
+    ordinal                INTEGER NOT NULL DEFAULT 0,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agentbrief_goal ON agent_brief(goal_id);
+CREATE TABLE IF NOT EXISTS agent_assignment (
+    assignment_id       TEXT PRIMARY KEY,
+    agent_id            TEXT NOT NULL,
+    goal_id             TEXT NOT NULL,
+    task_id             TEXT,
+    workspace_id        TEXT,
+    input_summary       TEXT NOT NULL DEFAULT '',
+    output_summary      TEXT NOT NULL DEFAULT '',
+    output_artifact     TEXT,
+    status              TEXT NOT NULL DEFAULT 'planned',
+    started_at          TEXT,
+    completed_at        TEXT,
+    failure_reason      TEXT,
+    ledger_refs         TEXT NOT NULL DEFAULT '[]',
+    kill_reason         TEXT,
+    max_runtime_seconds INTEGER NOT NULL DEFAULT 60,
+    max_cost_units      INTEGER NOT NULL DEFAULT 1,
+    risk_level          TEXT NOT NULL DEFAULT 'low',
+    approval_required   INTEGER NOT NULL DEFAULT 0,
+    supervisor          TEXT,
+    stopped_at          TEXT,
+    ordinal             INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agentassign_goal ON agent_assignment(goal_id);
 CREATE TABLE IF NOT EXISTS audit_outbox (
     outbox_id   TEXT PRIMARY KEY,
     event_type  TEXT NOT NULL,
@@ -689,7 +740,190 @@ class GoalStore:
             )
         self.flush_outbox()
 
+    # ── V3.3: agent workforce registry ───────────────────────────────────────
+
+    _ASSIGNMENT_STATUS_EVENT = {
+        AgentStatus.running:   LedgerEventType.agent_assignment_started,
+        AgentStatus.completed: LedgerEventType.agent_assignment_completed,
+        AgentStatus.blocked:   LedgerEventType.agent_assignment_blocked,
+        AgentStatus.failed:    LedgerEventType.agent_assignment_blocked,
+        AgentStatus.cancelled: LedgerEventType.agent_assignment_cancelled,
+        AgentStatus.killed:    LedgerEventType.agent_assignment_cancelled,
+    }
+
+    def save_agent_plan(
+        self, briefs: list[AgentBrief], assignments: list[AgentAssignment], *, actor: str = "aria",
+    ) -> None:
+        """Persist briefs + assignments and emit agent_workforce_planned (once) +
+        agent_assignment_created (per assignment) in ONE transaction."""
+        if not briefs:
+            return
+        conn = self._connect()
+        goal_id = briefs[0].goal_id
+        with conn:
+            for ordinal, b in enumerate(briefs):
+                conn.execute(
+                    "INSERT INTO agent_brief (agent_id, goal_id, task_id, name, role, objective, "
+                    "allowed_context, forbidden_context, allowed_tools, forbidden_tools, "
+                    "required_inputs, expected_output_schema, approval_required, risk_level, "
+                    "time_limit_seconds, cost_limit_units, status, ordinal, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        b.agent_id, b.goal_id, b.task_id, sanitize_text(b.name),
+                        sanitize_text(b.role), sanitize_text(b.objective),
+                        json.dumps(b.allowed_context), json.dumps(b.forbidden_context),
+                        json.dumps(b.allowed_tools), json.dumps(b.forbidden_tools),
+                        json.dumps(b.required_inputs), b.expected_output_schema,
+                        1 if b.approval_required else 0, b.risk_level, b.time_limit_seconds,
+                        b.cost_limit_units, b.status.value, ordinal,
+                        _iso(b.created_at), _iso(b.updated_at),
+                    ),
+                )
+            for ordinal, a in enumerate(assignments):
+                self._insert_assignment(conn, a, ordinal)
+            self._enqueue(
+                conn, LedgerEventType.agent_workforce_planned, task_id=goal_id, actor=actor,
+                actor_type=ActorType.aria, goal_id=goal_id, correlation_id=goal_id,
+                outcome=f"agents={len(briefs)}",
+            )
+            for a in assignments:
+                self._enqueue(
+                    conn, LedgerEventType.agent_assignment_created, task_id=a.assignment_id,
+                    actor=actor, actor_type=ActorType.aria, goal_id=a.goal_id, task_ref=a.task_id,
+                    agent_id=a.agent_id, assignment_id=a.assignment_id, correlation_id=a.goal_id,
+                    approval_required=a.approval_required, outcome="created",
+                )
+        self.flush_outbox()
+
+    def _insert_assignment(self, conn, a: AgentAssignment, ordinal: int) -> None:
+        conn.execute(
+            "INSERT INTO agent_assignment (assignment_id, agent_id, goal_id, task_id, workspace_id, "
+            "input_summary, output_summary, output_artifact, status, started_at, completed_at, "
+            "failure_reason, ledger_refs, kill_reason, max_runtime_seconds, max_cost_units, "
+            "risk_level, approval_required, supervisor, stopped_at, ordinal, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                a.assignment_id, a.agent_id, a.goal_id, a.task_id, a.workspace_id,
+                sanitize_text(a.input_summary), sanitize_text(a.output_summary), a.output_artifact,
+                a.status.value, _iso(a.started_at) if a.started_at else None,
+                _iso(a.completed_at) if a.completed_at else None,
+                sanitize_text(a.failure_reason) if a.failure_reason else None,
+                json.dumps(a.ledger_refs), sanitize_text(a.kill_reason) if a.kill_reason else None,
+                a.max_runtime_seconds, a.max_cost_units, a.risk_level,
+                1 if a.approval_required else 0, a.supervisor,
+                _iso(a.stopped_at) if a.stopped_at else None, ordinal, _iso(_now()),
+            ),
+        )
+
+    def update_agent_assignment(
+        self, assignment_id: str, *, status: AgentStatus | str,
+        output_summary: str | None = None, output_artifact: str | None = None,
+        failure_reason: str | None = None, input_summary: str | None = None,
+        started_at: datetime | None = None, completed_at: datetime | None = None,
+        kill_reason: str | None = None, supervisor: str | None = None,
+        stopped_at: datetime | None = None, actor: str = "aria",
+    ) -> AgentAssignment:
+        status = AgentStatus(status) if not isinstance(status, AgentStatus) else status
+        conn = self._connect()
+        a = self.get_agent_assignment(assignment_id)
+        if a is None:
+            raise GoalNotFound(f"assignment {assignment_id!r} not found")
+        fields = {
+            "status": status.value,
+            "output_summary": sanitize_text(output_summary) if output_summary is not None else None,
+            "output_artifact": output_artifact,
+            "failure_reason": sanitize_text(failure_reason) if failure_reason is not None else None,
+            "input_summary": sanitize_text(input_summary) if input_summary is not None else None,
+            "started_at": _iso(started_at) if started_at else None,
+            "completed_at": _iso(completed_at) if completed_at else None,
+            "kill_reason": sanitize_text(kill_reason) if kill_reason is not None else None,
+            "supervisor": supervisor,
+            "stopped_at": _iso(stopped_at) if stopped_at else None,
+        }
+        sets = ", ".join(f"{k}=?" for k, v in fields.items() if v is not None)
+        params = [v for v in fields.values() if v is not None] + [assignment_id]
+        event_type = self._ASSIGNMENT_STATUS_EVENT.get(status)
+        with conn:
+            if sets:
+                conn.execute(f"UPDATE agent_assignment SET {sets} WHERE assignment_id=?", params)
+            if event_type is not None:
+                self._enqueue(
+                    conn, event_type, task_id=assignment_id, actor=actor,
+                    actor_type=ActorType.aria, goal_id=a.goal_id, task_ref=a.task_id,
+                    agent_id=a.agent_id, assignment_id=assignment_id, correlation_id=a.goal_id,
+                    approval_required=a.approval_required, outcome=status.value,
+                )
+        self.flush_outbox()
+        return self.get_agent_assignment(assignment_id)  # type: ignore[return-value]
+
+    def emit_agent_result_merged(self, goal_id: str, *, outcome: str, actor: str = "aria") -> None:
+        goal = self.get_goal(goal_id)
+        conn = self._connect()
+        with conn:
+            self._enqueue(
+                conn, LedgerEventType.agent_result_merged, task_id=goal_id, actor=actor,
+                actor_type=ActorType.aria, goal_id=goal_id, scope=goal.scope if goal else None,
+                correlation_id=goal_id, outcome=outcome,
+            )
+        self.flush_outbox()
+
+    def get_agent_briefs(self, goal_id: str) -> list[AgentBrief]:
+        rows = self._connect().execute(
+            "SELECT * FROM agent_brief WHERE goal_id=? ORDER BY ordinal, created_at", (goal_id,)
+        ).fetchall()
+        return [self._row_to_brief(r) for r in rows]
+
+    def get_agent_brief(self, agent_id: str) -> AgentBrief | None:
+        row = self._connect().execute(
+            "SELECT * FROM agent_brief WHERE agent_id=?", (agent_id,)
+        ).fetchone()
+        return self._row_to_brief(row) if row else None
+
+    def get_agent_assignments(self, goal_id: str) -> list[AgentAssignment]:
+        rows = self._connect().execute(
+            "SELECT * FROM agent_assignment WHERE goal_id=? ORDER BY ordinal, created_at", (goal_id,)
+        ).fetchall()
+        return [self._row_to_assignment(r) for r in rows]
+
+    def get_agent_assignment(self, assignment_id: str) -> AgentAssignment | None:
+        row = self._connect().execute(
+            "SELECT * FROM agent_assignment WHERE assignment_id=?", (assignment_id,)
+        ).fetchone()
+        return self._row_to_assignment(row) if row else None
+
     # ── Row → model ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_brief(row: sqlite3.Row) -> AgentBrief:
+        return AgentBrief(
+            agent_id=row["agent_id"], goal_id=row["goal_id"], task_id=row["task_id"],
+            name=row["name"], role=row["role"], objective=row["objective"],
+            allowed_context=json.loads(row["allowed_context"]),
+            forbidden_context=json.loads(row["forbidden_context"]),
+            allowed_tools=json.loads(row["allowed_tools"]),
+            forbidden_tools=json.loads(row["forbidden_tools"]),
+            required_inputs=json.loads(row["required_inputs"]),
+            expected_output_schema=row["expected_output_schema"],
+            approval_required=bool(row["approval_required"]), risk_level=row["risk_level"],
+            time_limit_seconds=row["time_limit_seconds"], cost_limit_units=row["cost_limit_units"],
+            status=AgentStatus(row["status"]),
+            created_at=_parse_dt(row["created_at"]), updated_at=_parse_dt(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _row_to_assignment(row: sqlite3.Row) -> AgentAssignment:
+        return AgentAssignment(
+            assignment_id=row["assignment_id"], agent_id=row["agent_id"], goal_id=row["goal_id"],
+            task_id=row["task_id"], workspace_id=row["workspace_id"],
+            input_summary=row["input_summary"], output_summary=row["output_summary"],
+            output_artifact=row["output_artifact"], status=AgentStatus(row["status"]),
+            started_at=_parse_dt(row["started_at"]), completed_at=_parse_dt(row["completed_at"]),
+            failure_reason=row["failure_reason"], ledger_refs=json.loads(row["ledger_refs"]),
+            kill_reason=row["kill_reason"], max_runtime_seconds=row["max_runtime_seconds"],
+            max_cost_units=row["max_cost_units"], risk_level=row["risk_level"],
+            approval_required=bool(row["approval_required"]), supervisor=row["supervisor"],
+            stopped_at=_parse_dt(row["stopped_at"]),
+        )
 
     @staticmethod
     def _row_to_step(row: sqlite3.Row) -> ExecutionStep:

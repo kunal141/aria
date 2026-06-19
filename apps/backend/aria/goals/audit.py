@@ -17,6 +17,13 @@ from typing import Any
 
 from aria.ledger import (
     ActorType,
+    AgentAssignmentBlocked,
+    AgentAssignmentCancelled,
+    AgentAssignmentCompleted,
+    AgentAssignmentCreated,
+    AgentAssignmentStarted,
+    AgentResultMerged,
+    AgentWorkforcePlanned,
     ClarificationAnswered,
     ClarificationRequested,
     DeliverableTracked,
@@ -51,6 +58,14 @@ _EVENT_CLASSES = {
     LedgerEventType.evidence_provided:           EvidenceProvided,
     LedgerEventType.progress_report_created:     ProgressReportCreated,
     LedgerEventType.deliverable_tracked:         DeliverableTracked,
+    # V3.3 — dynamic agent workforce (dry-run)
+    LedgerEventType.agent_workforce_planned:     AgentWorkforcePlanned,
+    LedgerEventType.agent_assignment_created:    AgentAssignmentCreated,
+    LedgerEventType.agent_assignment_started:    AgentAssignmentStarted,
+    LedgerEventType.agent_assignment_completed:  AgentAssignmentCompleted,
+    LedgerEventType.agent_assignment_blocked:    AgentAssignmentBlocked,
+    LedgerEventType.agent_assignment_cancelled:  AgentAssignmentCancelled,
+    LedgerEventType.agent_result_merged:         AgentResultMerged,
 }
 
 _RISK_LEVELS = {r.value: r for r in RiskLevel}
@@ -82,6 +97,8 @@ def build_goal_event(
     step_id: str | None = None,
     clarification_id: str | None = None,
     evidence_refs: list[str] | None = None,
+    agent_id: str | None = None,
+    assignment_id: str | None = None,
 ):
     meta: dict[str, Any] = {}
     for key, value in (
@@ -96,6 +113,8 @@ def build_goal_event(
         ("step_id", step_id),
         ("clarification_id", clarification_id),
         ("evidence_refs", evidence_refs),
+        ("agent_id", agent_id),
+        ("assignment_id", assignment_id),
     ):
         if value is not None:
             meta[key] = value
