@@ -189,20 +189,78 @@ class AgentWorkforceService:
             self._run_one(goal, brief, assignment, provided, actor=actor)
         return self.summary(goal_id, actor=actor, emit=True)
 
-    @staticmethod
-    def _is_runnable(assignment: AgentAssignment) -> bool:
+    # Blocked reasons that are RECOVERABLE — a re-run can complete them once the
+    # blocking condition clears (evidence supplied / dependency completed).
+    _RECOVERABLE_BLOCKS = ("blocked_for_evidence", "blocked_for_dependency")
+
+    @classmethod
+    def _is_runnable(cls, assignment: AgentAssignment) -> bool:
         """An assignment may (re)run unless it is terminal. ``blocked_for_evidence``
-        is RECOVERABLE — once evidence is supplied a re-run can complete it.
-        ``blocked_for_approval`` stays blocked (no approval mechanism in V3.3).
-        completed / failed / cancelled / killed are terminal."""
+        and ``blocked_for_dependency`` are RECOVERABLE — once the condition clears a
+        re-run can complete them. ``blocked_for_approval`` / ``blocked_for_quality_
+        review`` stay blocked; completed / failed / cancelled / killed are terminal."""
         if assignment.status in (
             AgentStatus.completed, AgentStatus.failed,
             AgentStatus.cancelled, AgentStatus.killed,
         ):
             return False
         if assignment.status is AgentStatus.blocked:
-            return assignment.failure_reason == "blocked_for_evidence"
+            return assignment.failure_reason in cls._RECOVERABLE_BLOCKS
         return True   # planned / ready / running
+
+    def stage_assignment(self, goal_id: str, assignment_id: str):
+        """Compute an assignment's dry-run result IN MEMORY — NO persist, NO artifact
+        write. Returns ``(status, summary, artifact_content, failure_reason)``. Used by
+        the V3.4 supervisor so a completed output can be quality-reviewed BEFORE any
+        of it is persisted (a rejected output must never reach SQLite or disk). An
+        internal error returns a safe ``failed`` tuple — class-only, never raw text."""
+        goal = self._store.get_goal(goal_id)
+        if goal is None:
+            raise GoalNotFound(f"goal {goal_id!r} not found")
+        assignment = self._store.get_agent_assignment(assignment_id)
+        brief = self._store.get_agent_brief(assignment.agent_id) if assignment else None
+        if assignment is None or brief is None:
+            return AgentStatus.failed, "", None, "internal error (MissingAssignment)"
+        provided = set(self._store.list_evidence(goal_id))
+        try:
+            return self._dry_execute(goal, brief, provided)
+        except Exception as exc:  # never leak raw text — class only
+            _log.error("staged agent dry-run failed (class only): %s", type(exc).__name__)
+            return AgentStatus.failed, "", None, f"internal error ({type(exc).__name__})"
+
+    def commit_assignment(
+        self, goal_id: str, assignment_id: str, status: AgentStatus, summary: str | None,
+        artifact_content: str | None, failure_reason: str | None, *,
+        started_at=None, actor: str | None = None,
+    ):
+        """Persist a DECIDED assignment result. Writes the findings artifact ONLY for a
+        completed (accepted) result — the supervisor stages + quality-checks BEFORE
+        calling this, so rejected content is never written here. Fails safely."""
+        actor = actor or self._actor
+        goal = self._store.get_goal(goal_id)
+        assignment = self._store.get_agent_assignment(assignment_id)
+        if goal is None or assignment is None:
+            return assignment
+        brief = self._store.get_agent_brief(assignment.agent_id)
+        artifact_ref = None
+        try:
+            if (status is AgentStatus.completed and artifact_content and brief
+                    and self._workspace_store and goal.workspace_id):
+                name = f"agent_{brief.role}_{uuid.uuid4().hex[:8]}.md"
+                artifact_ref = self._workspace_store.write_artifact(goal.workspace_id, name, artifact_content)
+            self._store.update_agent_assignment(
+                assignment_id, status=status, output_summary=summary, output_artifact=artifact_ref,
+                failure_reason=failure_reason, started_at=started_at, completed_at=_now(), actor=actor,
+            )
+        except Exception as exc:  # safe failure — class only, never left running
+            _log.error("agent commit failed (class only): %s", type(exc).__name__)
+            self._store.update_agent_assignment(
+                assignment_id, status=AgentStatus.failed,
+                failure_reason=f"internal error ({type(exc).__name__})", completed_at=_now(), actor=actor,
+            )
+            return self._store.get_agent_assignment(assignment_id)
+        self._safe_workspace_update(goal, assignment_id, status, artifact_ref, actor=actor)
+        return self._store.get_agent_assignment(assignment_id)
 
     def _run_one(self, goal, brief: AgentBrief, assignment: AgentAssignment, provided, *, actor):
         aid = assignment.assignment_id

@@ -337,6 +337,94 @@ class AgentPlan(BaseModel):
     assignments: list[AgentAssignment] = Field(default_factory=list)
 
 
+# ── V3.4: agent supervisor + multi-agent governance ──────────────────────────
+
+
+class SupervisionStatus(str, Enum):
+    planned = "planned"
+    running = "running"
+    completed = "completed"
+    completed_with_blockers = "completed_with_blockers"
+    failed_safely = "failed_safely"
+    cancelled = "cancelled"
+
+
+class QualityStatus(str, Enum):
+    passed = "passed"
+    blocked_for_quality_review = "blocked_for_quality_review"
+    escalation_required = "escalation_required"
+
+
+class GovernancePolicy(BaseModel):
+    """Supervision-level governance limits. Safe defaults; callers may override."""
+    model_config = ConfigDict(frozen=True)
+
+    max_total_cost_units: int = 100
+    max_total_runtime_seconds: int = 3600
+    max_assignments_per_run: int = 20
+    allowed_risk_levels: list[str] = Field(default_factory=lambda: ["low", "medium"])
+    require_approval_for_high_risk: bool = True
+    max_retries: int = 2
+
+
+class AgentExecutionPlan(BaseModel):
+    """A governed multi-agent execution plan: dependency-ordered, budget-estimated."""
+    model_config = ConfigDict(frozen=True)
+
+    plan_id: str
+    goal_id: str
+    workspace_id: str | None = None
+    assignment_ids: list[str] = Field(default_factory=list)
+    execution_order: list[str] = Field(default_factory=list)
+    blocked_assignments: list[str] = Field(default_factory=list)
+    approval_required_assignments: list[str] = Field(default_factory=list)
+    estimated_cost_units: int = 0
+    estimated_runtime_seconds: int = 0
+    risk_summary: str = "low"
+    created_at: datetime
+    updated_at: datetime
+
+
+class Escalation(BaseModel):
+    """A human-review escalation. NO external message is sent — it is recorded."""
+    model_config = ConfigDict(frozen=True)
+
+    escalation_id: str
+    goal_id: str
+    run_id: str | None = None
+    assignment_id: str | None = None
+    reason: str
+    suggested_action: str
+    risk_level: str = "low"
+    workspace_id: str | None = None
+    created_at: datetime
+
+
+class AgentSupervisionRun(BaseModel):
+    """A supervision run record + outcome counts and governance verdicts."""
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    plan_id: str
+    goal_id: str
+    workspace_id: str | None = None
+    status: SupervisionStatus = SupervisionStatus.planned
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    total_assignments: int = 0
+    completed_assignments: int = 0
+    blocked_assignments: int = 0
+    failed_assignments: int = 0
+    cancelled_assignments: int = 0
+    quality_passed: bool = True
+    escalation_required: bool = False
+    summary: str = ""
+    ledger_refs: list[str] = Field(default_factory=list)
+    boundary_note: str = (
+        "Supervised dry-run. No real agent process, no external writes, no live connectors."
+    )
+
+
 class GoalPlan(BaseModel):
     """Convenience bundle returned when a goal is created: the intake, its roadmap,
     its task list, and the linked workspace id."""

@@ -80,6 +80,14 @@ from aria.ledger.events import (
     AgentAssignmentBlocked,
     AgentAssignmentCancelled,
     AgentResultMerged,
+    AgentSupervisionPlanned,
+    AgentSupervisionStarted,
+    AgentSupervisionCompleted,
+    AgentSupervisionBlocked,
+    AgentQualityCheckFailed,
+    AgentEscalationRequired,
+    AgentBudgetBlocked,
+    AgentDependencyBlocked,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -150,6 +158,15 @@ __all__ = [
     "AgentAssignmentBlocked",
     "AgentAssignmentCancelled",
     "AgentResultMerged",
+    # V3.4 — agent supervisor + governance events
+    "AgentSupervisionPlanned",
+    "AgentSupervisionStarted",
+    "AgentSupervisionCompleted",
+    "AgentSupervisionBlocked",
+    "AgentQualityCheckFailed",
+    "AgentEscalationRequired",
+    "AgentBudgetBlocked",
+    "AgentDependencyBlocked",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

@@ -23,6 +23,10 @@ Endpoints:
     GET   /api/v3/goals/{goal_id}/agents                 (V3.3)
     GET   /api/v3/goals/{goal_id}/agents/summary         (V3.3)
     POST  /api/v3/goals/{goal_id}/agents/{assignment_id}/cancel  (V3.3)
+    POST  /api/v3/goals/{goal_id}/agents/supervise-plan  (V3.4 governed plan)
+    POST  /api/v3/goals/{goal_id}/agents/supervise-run   (V3.4 governed run)
+    GET   /api/v3/goals/{goal_id}/agents/supervision     (V3.4)
+    POST  /api/v3/goals/{goal_id}/agents/supervision/{run_id}/cancel  (V3.4)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -41,7 +45,13 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from aria.goals import AgentWorkforceService, ExecutionService, GoalService, GoalStore
+from aria.goals import (
+    AgentSupervisorService,
+    AgentWorkforceService,
+    ExecutionService,
+    GoalService,
+    GoalStore,
+)
 from aria.goals.models import TaskStatus
 from aria.goals.store import GoalNotFound, TaskNotFound
 from aria.llm import resolve_execution_mode
@@ -78,6 +88,14 @@ def _build_agents():
     workspace_store = WorkspaceStore(execution_mode=mode)
     agents = AgentWorkforceService(store, workspace_store=workspace_store, execution_mode=mode, actor=actor())
     return store, workspace_store, agents
+
+
+def _build_supervisor():
+    mode = resolve_execution_mode().value
+    store = GoalStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    supervisor = AgentSupervisorService(store, workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    return store, workspace_store, supervisor
 
 
 def _close(*stores) -> None:
@@ -369,15 +387,76 @@ def cancel_agent(goal_id: str, assignment_id: str, body: CancelAssignmentRequest
         _close(store, workspace_store)
 
 
+# ── V3.4: agent supervisor + multi-agent governance ─────────────────────────
+
+
+@v3_router.post("/goals/{goal_id}/agents/supervise-plan")
+def supervise_plan(goal_id: str):
+    """Build a governed, dependency-ordered, budget-estimated execution plan."""
+    store, workspace_store, supervisor = _build_supervisor()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        plan = supervisor.plan(goal_id)
+        return JSONResponse(status_code=201, content=_dump(plan))
+    except Exception as exc:
+        _log.error("v3 supervise_plan error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not build the supervision plan.")
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/agents/supervise-run")
+def supervise_run(goal_id: str):
+    """Run the planned workforce under governance (dependency / budget / risk /
+    retry / quality / escalation). Dry-run only — no external execution."""
+    store, workspace_store, supervisor = _build_supervisor()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        return _dump(supervisor.run(goal_id))
+    except Exception as exc:
+        _log.error("v3 supervise_run error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not run supervision.")
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.get("/goals/{goal_id}/agents/supervision")
+def get_supervision(goal_id: str):
+    store, workspace_store, supervisor = _build_supervisor()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        return supervisor.get_supervision(goal_id)
+    finally:
+        _close(store, workspace_store)
+
+
+@v3_router.post("/goals/{goal_id}/agents/supervision/{run_id}/cancel")
+def cancel_supervision(goal_id: str, run_id: str, body: CancelAssignmentRequest):
+    store, workspace_store, supervisor = _build_supervisor()
+    try:
+        if store.get_goal(goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        run = store.get_supervision_run(run_id)
+        if run is None or run.goal_id != goal_id:
+            return _safe_error(404, "run_not_found", "Unknown supervision run for this goal.")
+        return _dump(supervisor.cancel_run(run_id, reason=body.reason))
+    finally:
+        _close(store, workspace_store)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.3.0",
-                  description=("V3.1–V3.3 goal ownership + governed work-execution loop + dry-run "
-                               "agent workforce — localhost pilot, planning/dry-run only (no "
-                               "external writes, no live connectors, no real agent process)"))
+    app = FastAPI(title="ARIA V3 API", version="3.4.0",
+                  description=("V3.1–V3.4 goal ownership + work-execution loop + dry-run agent "
+                               "workforce + agent supervisor/governance — localhost pilot, "
+                               "planning/dry-run only (no external writes, no live connectors, "
+                               "no real agent process)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],

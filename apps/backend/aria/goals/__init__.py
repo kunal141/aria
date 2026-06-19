@@ -12,10 +12,16 @@ from aria.goals.intake import build_roadmap, run_intake
 from aria.goals.models import (
     AgentAssignment,
     AgentBrief,
+    AgentExecutionPlan,
     AgentMergeResult,
     AgentPlan,
     AgentStatus,
+    AgentSupervisionRun,
     ClarificationRequest,
+    Escalation,
+    GovernancePolicy,
+    QualityStatus,
+    SupervisionStatus,
     Deliverable,
     ExecutionOutcome,
     ExecutionProgress,
@@ -34,6 +40,7 @@ from aria.goals.models import (
 from aria.goals.sanitize import sanitize_goal_intake, sanitize_text
 from aria.goals.service import GoalService, render_goal_brief, render_roadmap
 from aria.goals.store import GoalNotFound, GoalStore, TaskNotFound
+from aria.goals.supervisor import AgentSupervisorService
 
 __all__ = [
     "run_intake",
@@ -60,6 +67,13 @@ __all__ = [
     "AgentStatus",
     "AgentMergeResult",
     "AgentPlan",
+    "AgentSupervisorService",
+    "AgentExecutionPlan",
+    "AgentSupervisionRun",
+    "GovernancePolicy",
+    "Escalation",
+    "SupervisionStatus",
+    "QualityStatus",
     "ClarificationRequest",
     "Deliverable",
     "GoalService",

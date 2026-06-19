@@ -185,6 +185,17 @@ class LedgerEventType(str, Enum):
     agent_assignment_blocked     = "agent_assignment_blocked"
     agent_assignment_cancelled   = "agent_assignment_cancelled"
     agent_result_merged          = "agent_result_merged"
+    # ── V3.4: agent supervisor + multi-agent governance events ────────────────
+    # Governance/supervision over the V3.3 DRY-RUN workforce — no real process, no
+    # external write. Plan/run/budget/quality/escalation ids ride in metadata.
+    agent_supervision_planned    = "agent_supervision_planned"
+    agent_supervision_started    = "agent_supervision_started"
+    agent_supervision_completed  = "agent_supervision_completed"
+    agent_supervision_blocked    = "agent_supervision_blocked"
+    agent_quality_check_failed   = "agent_quality_check_failed"
+    agent_escalation_required    = "agent_escalation_required"
+    agent_budget_blocked         = "agent_budget_blocked"
+    agent_dependency_blocked     = "agent_dependency_blocked"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -870,6 +881,64 @@ class AgentResultMerged(LedgerEventBase):
     event_type: Literal[LedgerEventType.agent_result_merged] = LedgerEventType.agent_result_merged
 
 
+# ── V3.4: agent supervisor + multi-agent governance events ────────────────────
+# Governance over the V3.3 dry-run workforce. No real process, no external write.
+
+
+class AgentSupervisionPlanned(LedgerEventBase):
+    """A supervisor built a governed multi-agent execution plan (order + budget)."""
+    event_type: Literal[LedgerEventType.agent_supervision_planned] = (
+        LedgerEventType.agent_supervision_planned
+    )
+
+
+class AgentSupervisionStarted(LedgerEventBase):
+    """A governed supervision run began (dry-run, dependency-ordered)."""
+    event_type: Literal[LedgerEventType.agent_supervision_started] = (
+        LedgerEventType.agent_supervision_started
+    )
+
+
+class AgentSupervisionCompleted(LedgerEventBase):
+    """A supervision run finished (completed / completed_with_blockers / etc.)."""
+    event_type: Literal[LedgerEventType.agent_supervision_completed] = (
+        LedgerEventType.agent_supervision_completed
+    )
+
+
+class AgentSupervisionBlocked(LedgerEventBase):
+    """A supervision run was blocked before/while running (budget / governance)."""
+    event_type: Literal[LedgerEventType.agent_supervision_blocked] = (
+        LedgerEventType.agent_supervision_blocked
+    )
+
+
+class AgentQualityCheckFailed(LedgerEventBase):
+    """An agent output failed a quality check and was not silently accepted."""
+    event_type: Literal[LedgerEventType.agent_quality_check_failed] = (
+        LedgerEventType.agent_quality_check_failed
+    )
+
+
+class AgentEscalationRequired(LedgerEventBase):
+    """A governance/quality/budget condition requires human review (no message sent)."""
+    event_type: Literal[LedgerEventType.agent_escalation_required] = (
+        LedgerEventType.agent_escalation_required
+    )
+
+
+class AgentBudgetBlocked(LedgerEventBase):
+    """A run/assignment was blocked because it would exceed the budget/time policy."""
+    event_type: Literal[LedgerEventType.agent_budget_blocked] = LedgerEventType.agent_budget_blocked
+
+
+class AgentDependencyBlocked(LedgerEventBase):
+    """An assignment was blocked because a prerequisite did not complete."""
+    event_type: Literal[LedgerEventType.agent_dependency_blocked] = (
+        LedgerEventType.agent_dependency_blocked
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -941,7 +1010,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked,
     Field(discriminator="event_type"),
 ]
 

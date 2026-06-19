@@ -22,7 +22,15 @@ from aria.ledger import (
     AgentAssignmentCompleted,
     AgentAssignmentCreated,
     AgentAssignmentStarted,
+    AgentBudgetBlocked,
+    AgentDependencyBlocked,
+    AgentEscalationRequired,
+    AgentQualityCheckFailed,
     AgentResultMerged,
+    AgentSupervisionBlocked,
+    AgentSupervisionCompleted,
+    AgentSupervisionPlanned,
+    AgentSupervisionStarted,
     AgentWorkforcePlanned,
     ClarificationAnswered,
     ClarificationRequested,
@@ -66,6 +74,15 @@ _EVENT_CLASSES = {
     LedgerEventType.agent_assignment_blocked:    AgentAssignmentBlocked,
     LedgerEventType.agent_assignment_cancelled:  AgentAssignmentCancelled,
     LedgerEventType.agent_result_merged:         AgentResultMerged,
+    # V3.4 — supervisor + governance
+    LedgerEventType.agent_supervision_planned:   AgentSupervisionPlanned,
+    LedgerEventType.agent_supervision_started:   AgentSupervisionStarted,
+    LedgerEventType.agent_supervision_completed: AgentSupervisionCompleted,
+    LedgerEventType.agent_supervision_blocked:   AgentSupervisionBlocked,
+    LedgerEventType.agent_quality_check_failed:  AgentQualityCheckFailed,
+    LedgerEventType.agent_escalation_required:   AgentEscalationRequired,
+    LedgerEventType.agent_budget_blocked:        AgentBudgetBlocked,
+    LedgerEventType.agent_dependency_blocked:    AgentDependencyBlocked,
 }
 
 _RISK_LEVELS = {r.value: r for r in RiskLevel}
@@ -99,6 +116,11 @@ def build_goal_event(
     evidence_refs: list[str] | None = None,
     agent_id: str | None = None,
     assignment_id: str | None = None,
+    plan_id: str | None = None,
+    run_id: str | None = None,
+    budget_status: str | None = None,
+    quality_status: str | None = None,
+    escalation_required: bool | None = None,
 ):
     meta: dict[str, Any] = {}
     for key, value in (
@@ -115,6 +137,11 @@ def build_goal_event(
         ("evidence_refs", evidence_refs),
         ("agent_id", agent_id),
         ("assignment_id", assignment_id),
+        ("plan_id", plan_id),
+        ("run_id", run_id),
+        ("budget_status", budget_status),
+        ("quality_status", quality_status),
+        ("escalation_required", escalation_required),
     ):
         if value is not None:
             meta[key] = value

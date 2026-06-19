@@ -27,8 +27,12 @@ from aria.goals.sanitize import sanitize_goal_intake, sanitize_text
 from aria.goals.models import (
     AgentAssignment,
     AgentBrief,
+    AgentExecutionPlan,
     AgentStatus,
+    AgentSupervisionRun,
     ClarificationRequest,
+    Escalation,
+    SupervisionStatus,
     Deliverable,
     ExecutionOutcome,
     ExecutionStep,
@@ -191,6 +195,54 @@ CREATE TABLE IF NOT EXISTS agent_assignment (
     created_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agentassign_goal ON agent_assignment(goal_id);
+CREATE TABLE IF NOT EXISTS agent_execution_plan (
+    plan_id                       TEXT PRIMARY KEY,
+    goal_id                       TEXT NOT NULL,
+    workspace_id                  TEXT,
+    assignment_ids                TEXT NOT NULL DEFAULT '[]',
+    execution_order               TEXT NOT NULL DEFAULT '[]',
+    blocked_assignments           TEXT NOT NULL DEFAULT '[]',
+    approval_required_assignments TEXT NOT NULL DEFAULT '[]',
+    estimated_cost_units          INTEGER NOT NULL DEFAULT 0,
+    estimated_runtime_seconds     INTEGER NOT NULL DEFAULT 0,
+    risk_summary                  TEXT NOT NULL DEFAULT 'low',
+    created_at                    TEXT NOT NULL,
+    updated_at                    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_execplan_goal ON agent_execution_plan(goal_id);
+CREATE TABLE IF NOT EXISTS agent_supervision_run (
+    run_id                 TEXT PRIMARY KEY,
+    plan_id                TEXT NOT NULL,
+    goal_id                TEXT NOT NULL,
+    workspace_id           TEXT,
+    status                 TEXT NOT NULL DEFAULT 'planned',
+    started_at             TEXT,
+    completed_at           TEXT,
+    total_assignments      INTEGER NOT NULL DEFAULT 0,
+    completed_assignments  INTEGER NOT NULL DEFAULT 0,
+    blocked_assignments    INTEGER NOT NULL DEFAULT 0,
+    failed_assignments     INTEGER NOT NULL DEFAULT 0,
+    cancelled_assignments  INTEGER NOT NULL DEFAULT 0,
+    quality_passed         INTEGER NOT NULL DEFAULT 1,
+    escalation_required    INTEGER NOT NULL DEFAULT 0,
+    summary                TEXT NOT NULL DEFAULT '',
+    ledger_refs            TEXT NOT NULL DEFAULT '[]',
+    ordinal                INTEGER NOT NULL DEFAULT 0,
+    created_at             TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_suprun_goal ON agent_supervision_run(goal_id);
+CREATE TABLE IF NOT EXISTS agent_escalation (
+    escalation_id    TEXT PRIMARY KEY,
+    goal_id          TEXT NOT NULL,
+    run_id           TEXT,
+    assignment_id    TEXT,
+    reason           TEXT NOT NULL,
+    suggested_action TEXT NOT NULL,
+    risk_level       TEXT NOT NULL DEFAULT 'low',
+    workspace_id     TEXT,
+    created_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_escalation_goal ON agent_escalation(goal_id);
 CREATE TABLE IF NOT EXISTS audit_outbox (
     outbox_id   TEXT PRIMARY KEY,
     event_type  TEXT NOT NULL,
@@ -821,8 +873,12 @@ class GoalStore:
         failure_reason: str | None = None, input_summary: str | None = None,
         started_at: datetime | None = None, completed_at: datetime | None = None,
         kill_reason: str | None = None, supervisor: str | None = None,
-        stopped_at: datetime | None = None, actor: str = "aria",
+        stopped_at: datetime | None = None, clear_output: bool = False, actor: str = "aria",
     ) -> AgentAssignment:
+        """Update an assignment. ``clear_output=True`` explicitly QUARANTINES a
+        rejected output: it sets ``output_artifact`` to NULL and replaces
+        ``output_summary`` with a safe withheld note (used when a completed output
+        fails quality review, so the rejected content is not retained/attached)."""
         status = AgentStatus(status) if not isinstance(status, AgentStatus) else status
         conn = self._connect()
         a = self.get_agent_assignment(assignment_id)
@@ -840,8 +896,19 @@ class GoalStore:
             "supervisor": supervisor,
             "stopped_at": _iso(stopped_at) if stopped_at else None,
         }
-        sets = ", ".join(f"{k}=?" for k, v in fields.items() if v is not None)
-        params = [v for v in fields.values() if v is not None] + [assignment_id]
+        set_parts = [f"{k}=?" for k, v in fields.items() if v is not None]
+        params: list[Any] = [v for v in fields.values() if v is not None]
+        if clear_output:
+            # Explicit NULL/withheld — bypasses the None-skip filter above.
+            set_parts.append("output_artifact=NULL")
+            set_parts.append("output_summary=?")
+            params.append("[withheld: output rejected by quality review]")
+        if status is AgentStatus.completed and "failure_reason=?" not in set_parts:
+            # A completed assignment must not retain a stale blocked reason (e.g. a
+            # recovered dependency-blocked assignment). Clear it explicitly.
+            set_parts.append("failure_reason=NULL")
+        sets = ", ".join(set_parts)
+        params.append(assignment_id)
         event_type = self._ASSIGNMENT_STATUS_EVENT.get(status)
         with conn:
             if sets:
@@ -890,6 +957,205 @@ class GoalStore:
             "SELECT * FROM agent_assignment WHERE assignment_id=?", (assignment_id,)
         ).fetchone()
         return self._row_to_assignment(row) if row else None
+
+    # ── V3.4: supervision plans / runs / escalations ────────────────────────
+
+    def save_execution_plan(self, plan: AgentExecutionPlan, *, actor: str = "aria",
+                            budget_status: str = "ok") -> AgentExecutionPlan:
+        conn = self._connect()
+        with conn:
+            conn.execute(
+                "INSERT INTO agent_execution_plan (plan_id, goal_id, workspace_id, assignment_ids, "
+                "execution_order, blocked_assignments, approval_required_assignments, "
+                "estimated_cost_units, estimated_runtime_seconds, risk_summary, created_at, "
+                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    plan.plan_id, plan.goal_id, plan.workspace_id, json.dumps(plan.assignment_ids),
+                    json.dumps(plan.execution_order), json.dumps(plan.blocked_assignments),
+                    json.dumps(plan.approval_required_assignments), plan.estimated_cost_units,
+                    plan.estimated_runtime_seconds, plan.risk_summary,
+                    _iso(plan.created_at), _iso(plan.updated_at),
+                ),
+            )
+            self._enqueue(
+                conn, LedgerEventType.agent_supervision_planned, task_id=plan.goal_id, actor=actor,
+                actor_type=ActorType.aria, goal_id=plan.goal_id, workspace_id=plan.workspace_id,
+                plan_id=plan.plan_id, correlation_id=plan.goal_id, risk_level=plan.risk_summary,
+                budget_status=budget_status,
+                outcome=f"order={len(plan.execution_order)};cost={plan.estimated_cost_units}",
+            )
+        self.flush_outbox()
+        return self.get_execution_plan(plan.plan_id)  # type: ignore[return-value]
+
+    def get_execution_plan(self, plan_id: str) -> AgentExecutionPlan | None:
+        row = self._connect().execute(
+            "SELECT * FROM agent_execution_plan WHERE plan_id=?", (plan_id,)
+        ).fetchone()
+        return self._row_to_plan(row) if row else None
+
+    def get_latest_execution_plan(self, goal_id: str) -> AgentExecutionPlan | None:
+        row = self._connect().execute(
+            "SELECT * FROM agent_execution_plan WHERE goal_id=? ORDER BY created_at DESC, plan_id "
+            "LIMIT 1", (goal_id,)
+        ).fetchone()
+        return self._row_to_plan(row) if row else None
+
+    def create_supervision_run(self, run: AgentSupervisionRun, *, actor: str = "aria") -> AgentSupervisionRun:
+        conn = self._connect()
+        ordinal = self._connect().execute(
+            "SELECT COUNT(*) AS c FROM agent_supervision_run WHERE goal_id=?", (run.goal_id,)
+        ).fetchone()["c"]
+        with conn:
+            self._write_run(conn, run, ordinal)
+            self._enqueue(
+                conn, LedgerEventType.agent_supervision_started, task_id=run.run_id, actor=actor,
+                actor_type=ActorType.aria, goal_id=run.goal_id, workspace_id=run.workspace_id,
+                plan_id=run.plan_id, run_id=run.run_id, correlation_id=run.goal_id, outcome="started",
+            )
+        self.flush_outbox()
+        return self.get_supervision_run(run.run_id)  # type: ignore[return-value]
+
+    def complete_supervision_run(
+        self, run: AgentSupervisionRun, *, actor: str = "aria", blocked: bool = False,
+    ) -> AgentSupervisionRun:
+        conn = self._connect()
+        event = (LedgerEventType.agent_supervision_blocked if blocked
+                 else LedgerEventType.agent_supervision_completed)
+        with conn:
+            conn.execute("DELETE FROM agent_supervision_run WHERE run_id=?", (run.run_id,))
+            self._write_run(conn, run, self._run_ordinal(run.run_id, run.goal_id))
+            self._enqueue(
+                conn, event, task_id=run.run_id, actor=actor, actor_type=ActorType.aria,
+                goal_id=run.goal_id, workspace_id=run.workspace_id, plan_id=run.plan_id,
+                run_id=run.run_id, correlation_id=run.goal_id,
+                quality_status="passed" if run.quality_passed else "failed",
+                escalation_required=run.escalation_required, outcome=run.status.value,
+            )
+        self.flush_outbox()
+        return self.get_supervision_run(run.run_id)  # type: ignore[return-value]
+
+    def _run_ordinal(self, run_id: str, goal_id: str) -> int:
+        # Preserve the original ordinal when re-writing a run row.
+        return self._connect().execute(
+            "SELECT COUNT(*) AS c FROM agent_supervision_run WHERE goal_id=?", (goal_id,)
+        ).fetchone()["c"]
+
+    def _write_run(self, conn, run: AgentSupervisionRun, ordinal: int) -> None:
+        conn.execute(
+            "INSERT INTO agent_supervision_run (run_id, plan_id, goal_id, workspace_id, status, "
+            "started_at, completed_at, total_assignments, completed_assignments, blocked_assignments, "
+            "failed_assignments, cancelled_assignments, quality_passed, escalation_required, summary, "
+            "ledger_refs, ordinal, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                run.run_id, run.plan_id, run.goal_id, run.workspace_id, run.status.value,
+                _iso(run.started_at) if run.started_at else None,
+                _iso(run.completed_at) if run.completed_at else None,
+                run.total_assignments, run.completed_assignments, run.blocked_assignments,
+                run.failed_assignments, run.cancelled_assignments, 1 if run.quality_passed else 0,
+                1 if run.escalation_required else 0, sanitize_text(run.summary),
+                json.dumps(run.ledger_refs), ordinal, _iso(_now()),
+            ),
+        )
+
+    def get_supervision_run(self, run_id: str) -> AgentSupervisionRun | None:
+        row = self._connect().execute(
+            "SELECT * FROM agent_supervision_run WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return self._row_to_run(row) if row else None
+
+    def list_supervision_runs(self, goal_id: str) -> list[AgentSupervisionRun]:
+        rows = self._connect().execute(
+            "SELECT * FROM agent_supervision_run WHERE goal_id=? ORDER BY ordinal, created_at",
+            (goal_id,)
+        ).fetchall()
+        return [self._row_to_run(r) for r in rows]
+
+    def create_escalation(
+        self, esc: Escalation, *, actor: str = "aria", run_status: str | None = None,
+    ) -> Escalation:
+        conn = self._connect()
+        with conn:
+            conn.execute(
+                "INSERT INTO agent_escalation (escalation_id, goal_id, run_id, assignment_id, reason, "
+                "suggested_action, risk_level, workspace_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    esc.escalation_id, esc.goal_id, esc.run_id, esc.assignment_id,
+                    sanitize_text(esc.reason), sanitize_text(esc.suggested_action), esc.risk_level,
+                    esc.workspace_id, _iso(esc.created_at),
+                ),
+            )
+            self._enqueue(
+                conn, LedgerEventType.agent_escalation_required, task_id=esc.goal_id, actor=actor,
+                actor_type=ActorType.aria, goal_id=esc.goal_id, run_id=esc.run_id,
+                assignment_id=esc.assignment_id, workspace_id=esc.workspace_id,
+                correlation_id=esc.goal_id, risk_level=esc.risk_level, escalation_required=True,
+                outcome="escalation_required",
+            )
+        self.flush_outbox()
+        return esc
+
+    def list_escalations(self, goal_id: str, *, run_id: str | None = None) -> list[Escalation]:
+        conn = self._connect()
+        if run_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM agent_escalation WHERE goal_id=? AND run_id=? ORDER BY created_at",
+                (goal_id, run_id)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM agent_escalation WHERE goal_id=? ORDER BY created_at", (goal_id,)
+            ).fetchall()
+        return [self._row_to_escalation(r) for r in rows]
+
+    def emit_supervision_event(self, event_type: LedgerEventType, *, actor: str = "aria", **fields) -> None:
+        """Emit a standalone supervision/governance event (budget/dependency/quality)
+        through the durable outbox. The required envelope ``task_id`` is derived from
+        the most specific id present when the caller does not supply one."""
+        fields.setdefault(
+            "task_id",
+            fields.get("assignment_id") or fields.get("run_id") or fields.get("plan_id")
+            or fields.get("goal_id") or "supervision",
+        )
+        conn = self._connect()
+        with conn:
+            self._enqueue(conn, event_type, actor=actor, actor_type=ActorType.aria, **fields)
+        self.flush_outbox()
+
+    @staticmethod
+    def _row_to_plan(row: sqlite3.Row) -> AgentExecutionPlan:
+        return AgentExecutionPlan(
+            plan_id=row["plan_id"], goal_id=row["goal_id"], workspace_id=row["workspace_id"],
+            assignment_ids=json.loads(row["assignment_ids"]),
+            execution_order=json.loads(row["execution_order"]),
+            blocked_assignments=json.loads(row["blocked_assignments"]),
+            approval_required_assignments=json.loads(row["approval_required_assignments"]),
+            estimated_cost_units=row["estimated_cost_units"],
+            estimated_runtime_seconds=row["estimated_runtime_seconds"],
+            risk_summary=row["risk_summary"],
+            created_at=_parse_dt(row["created_at"]), updated_at=_parse_dt(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _row_to_run(row: sqlite3.Row) -> AgentSupervisionRun:
+        return AgentSupervisionRun(
+            run_id=row["run_id"], plan_id=row["plan_id"], goal_id=row["goal_id"],
+            workspace_id=row["workspace_id"], status=SupervisionStatus(row["status"]),
+            started_at=_parse_dt(row["started_at"]), completed_at=_parse_dt(row["completed_at"]),
+            total_assignments=row["total_assignments"], completed_assignments=row["completed_assignments"],
+            blocked_assignments=row["blocked_assignments"], failed_assignments=row["failed_assignments"],
+            cancelled_assignments=row["cancelled_assignments"],
+            quality_passed=bool(row["quality_passed"]), escalation_required=bool(row["escalation_required"]),
+            summary=row["summary"], ledger_refs=json.loads(row["ledger_refs"]),
+        )
+
+    @staticmethod
+    def _row_to_escalation(row: sqlite3.Row) -> Escalation:
+        return Escalation(
+            escalation_id=row["escalation_id"], goal_id=row["goal_id"], run_id=row["run_id"],
+            assignment_id=row["assignment_id"], reason=row["reason"],
+            suggested_action=row["suggested_action"], risk_level=row["risk_level"],
+            workspace_id=row["workspace_id"], created_at=_parse_dt(row["created_at"]),
+        )
 
     # ── Row → model ──────────────────────────────────────────────────────────
 
