@@ -246,6 +246,50 @@ Expand the current ARIA Agent Factory from **ARIA-native specialist agents** to
 compatibility — repo-level `AGENTS.md` / `CLAUDE.md` / `ARIA.md` → registry entries
 and briefs).
 
+### 5.9 Emerging Capability Radar (capability-intake front-end)
+
+The eight components above are the **execution back-end** for external agents. What
+decides *which* external capabilities should ever become adapters/backends is a
+governed **Emerging Capability Radar** — the detection + mapping front-end that feeds
+the Adapter Layer (§5.1) and Universal Registry (§5.2).
+
+> *"ARIA should not chase every new AI launch manually. It should maintain an
+> Emerging Capability Radar that detects new models, agent runtimes, memory systems,
+> MCP tools, frameworks, and platform patterns, then evaluates whether they should
+> become ARIA skills, adapters, runtime backends, roadmap notes, or ignored items."*
+
+> *"Claude Managed Agents, launch-your-agent, OpenAI Agents SDK, MCP servers, and
+> similar systems should be treated as possible execution backends or adapter targets
+> for ARIA, not replacements for ARIA."*
+
+> *"ARIA remains the governance, work ownership, memory, approval, Work Ledger, ROI,
+> and policy layer. External runtimes are workers/backends that ARIA may govern."*
+
+**Anthropic `launch-your-agent` / Claude Managed Agents (roadmap note).** These
+should be treated as **possible future execution backends** for ARIA — *not*
+replacements. In a future V4 flow: ARIA defines the goal, constraints, policy,
+approvals, and work memory; ARIA decides when a managed agent is appropriate and
+emits a bounded brief (§28.1); the managed agent executes under scoped permissions;
+ARIA receives artifacts, records a Work Ledger trace, evaluates quality, requires
+approval before any external write, and learns from the outcome.
+
+> *"Anthropic can provide managed agent runtime. ARIA provides governed work
+> ownership."*
+
+> *"launch-your-agent may create agents quickly. ARIA should decide which agents
+> should exist, what they are allowed to do, how they are evaluated, and how their
+> work is remembered."*
+
+The radar reuses V3.6's committed (`c283b85`) fixture-only `WorldSource`/`WorldUpdate`
+machinery; live, allowlisted monitoring is V3.8 (scheduled routines). Full design —
+the `EmergingCapability` / `CapabilityMapping` / `AdapterProposal` records, the
+15-point evaluation checklist, the discover→…→activate integration path, and the
+binding safety boundaries — is in
+[`EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md`](EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md).
+
+*Attaches to:* §5.1 (Adapter Layer), §5.2 (Registry), §5.3 (Policy Gateway), §5.6
+(Evaluation Harness); V3.6 World Awareness Engine; Pillars 18 / 24.
+
 ---
 
 ## 6. Where this attaches (so V2 leaves clean seams)
@@ -264,6 +308,7 @@ these later:
 | Agent Evaluation Harness | §26.1 L4; Pillar 12; Week-31 fitness-gate pattern |
 | Multi-interface Control Plane | §26.2 / §26.8; §28.4 #3 |
 | Agent Factory Expansion | Pillar 13; §28.4 #8 |
+| Emerging Capability Radar (§5.9) | V3.6 World Awareness (`WorldSource`/`WorldUpdate`); V3.8 scheduled routines; Pillars 18 / 24 |
 
 V2's already-shipped seams that this relies on: the Work Ledger's `correlation_id` +
 `actor` fields, the path-confinement + transactional-audit-outbox discipline, the
@@ -301,4 +346,6 @@ easier to add later — but do **not** pre-build them.
 execution), §28.1 (Subagent Instruction Engine), §28.4 (Agentic AI Roadmap),
 Pillars 12 / 13 / 15 / 16 / 24; `docs/V2_LOCAL_INTELLIGENCE_AND_MEMORY_PLAN.md`
 (the V2 internal-pilot scope this V3 vision sits above);
-`docs/week30_v1_v2_v3_boundary.md` (the V1/V2/V3 bright lines).*
+`docs/week30_v1_v2_v3_boundary.md` (the V1/V2/V3 bright lines);
+`docs/EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md` (the capability-intake
+radar + adapter-learning front-end that feeds §5).*
