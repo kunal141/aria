@@ -27,6 +27,10 @@ Endpoints:
     POST  /api/v3/goals/{goal_id}/agents/supervise-run   (V3.4 governed run)
     GET   /api/v3/goals/{goal_id}/agents/supervision     (V3.4)
     POST  /api/v3/goals/{goal_id}/agents/supervision/{run_id}/cancel  (V3.4)
+    POST  /api/v3/skills/gaps/detect                     (V3.5 skill evolution)
+    POST  /api/v3/skills/proposals                       (V3.5)
+    GET   /api/v3/skills/proposals[/{id}]                (V3.5)
+    POST  /api/v3/skills/proposals/{id}/spec|test-plan|evaluate|decision|rollback  (V3.5)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -56,6 +60,8 @@ from aria.goals.models import TaskStatus
 from aria.goals.store import GoalNotFound, TaskNotFound
 from aria.llm import resolve_execution_mode
 from aria.memory_v2.workspace import WorkspaceStore
+from aria.skill_evolution import SkillEvolutionService, SkillStore
+from aria.skill_evolution.store import InvalidSkillTransition, SkillNotFound
 
 _log = logging.getLogger("aria.api.v3")
 
@@ -98,6 +104,16 @@ def _build_supervisor():
     return store, workspace_store, supervisor
 
 
+def _build_skills():
+    mode = resolve_execution_mode().value
+    goal_store = GoalStore(execution_mode=mode)
+    skill_store = SkillStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    skills = SkillEvolutionService(skill_store, goal_store=goal_store, workspace_store=workspace_store,
+                                   execution_mode=mode, actor=actor())
+    return goal_store, skill_store, workspace_store, skills
+
+
 def _close(*stores) -> None:
     for s in stores:
         try:
@@ -134,6 +150,18 @@ class ProvideEvidenceRequest(BaseModel):
 class CancelAssignmentRequest(BaseModel):
     reason: str = "cancelled by supervisor"
     killed: bool = False
+
+
+class DetectGapsRequest(BaseModel):
+    goal_id: str = Field(min_length=1)
+
+
+class CreateSkillProposalRequest(BaseModel):
+    gap_id: str = Field(min_length=1)
+
+
+class SkillDecisionRequest(BaseModel):
+    decision: str            # approve | reject
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -447,16 +475,118 @@ def cancel_supervision(goal_id: str, run_id: str, body: CancelAssignmentRequest)
         _close(store, workspace_store)
 
 
+# ── V3.5: skill evolution engine (governed, approval-gated, no live code) ────
+
+
+@v3_router.post("/skills/gaps/detect")
+def detect_skill_gaps(body: DetectGapsRequest):
+    """Detect repeated capability gaps from a goal's record (proposals only)."""
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        if goal_store.get_goal(body.goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        gaps = skills.detect_gaps(body.goal_id)
+        return {"goal_id": body.goal_id, "gaps": [_dump(g) for g in gaps], "count": len(gaps)}
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
+@v3_router.post("/skills/proposals")
+def create_skill_proposal(body: CreateSkillProposalRequest):
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        proposal = skills.propose_skill(body.gap_id)
+        return JSONResponse(status_code=201, content=_dump(proposal))
+    except SkillNotFound:
+        return _safe_error(404, "gap_not_found", "Unknown skill gap.")
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
+@v3_router.get("/skills/proposals")
+def list_skill_proposals(status: str | None = None):
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        proposals = skill_store.list_proposals(status=status)
+        return {"proposals": [_dump(p) for p in proposals], "count": len(proposals)}
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
+@v3_router.get("/skills/proposals/{proposal_id}")
+def get_skill_proposal(proposal_id: str):
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        return skills.get_proposal_bundle(proposal_id)
+    except SkillNotFound:
+        return _safe_error(404, "proposal_not_found", "Unknown skill proposal.")
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
+def _skill_step(proposal_id: str, fn_name: str, status_code: int = 200):
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        result = getattr(skills, fn_name)(proposal_id)
+        return JSONResponse(status_code=status_code, content=_dump(result))
+    except SkillNotFound:
+        return _safe_error(404, "proposal_not_found", "Unknown skill proposal or missing prerequisite.")
+    except InvalidSkillTransition:
+        return _safe_error(409, "invalid_transition", "Illegal skill lifecycle transition.")
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 skill step error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not complete the skill step.")
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
+@v3_router.post("/skills/proposals/{proposal_id}/spec")
+def generate_skill_spec(proposal_id: str):
+    return _skill_step(proposal_id, "generate_spec", status_code=201)
+
+
+@v3_router.post("/skills/proposals/{proposal_id}/test-plan")
+def generate_skill_test_plan(proposal_id: str):
+    return _skill_step(proposal_id, "generate_test_plan", status_code=201)
+
+
+@v3_router.post("/skills/proposals/{proposal_id}/evaluate")
+def evaluate_skill_proposal(proposal_id: str):
+    return _skill_step(proposal_id, "evaluate")
+
+
+@v3_router.post("/skills/proposals/{proposal_id}/decision")
+def decide_skill_proposal(proposal_id: str, body: SkillDecisionRequest):
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        if skill_store.get_proposal(proposal_id) is None:
+            return _safe_error(404, "proposal_not_found", "Unknown skill proposal.")
+        return _dump(skills.decide(proposal_id, body.decision, decided_by=actor()))
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
+@v3_router.post("/skills/proposals/{proposal_id}/rollback")
+def rollback_skill(proposal_id: str):
+    goal_store, skill_store, workspace_store, skills = _build_skills()
+    try:
+        return _dump(skills.rollback(proposal_id))
+    except SkillNotFound:
+        return _safe_error(409, "rollback_not_allowed", "Only an activated skill can be rolled back.")
+    finally:
+        _close(goal_store, skill_store, workspace_store)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.4.0",
-                  description=("V3.1–V3.4 goal ownership + work-execution loop + dry-run agent "
-                               "workforce + agent supervisor/governance — localhost pilot, "
-                               "planning/dry-run only (no external writes, no live connectors, "
-                               "no real agent process)"))
+    app = FastAPI(title="ARIA V3 API", version="3.5.0",
+                  description=("V3.1–V3.5 goal ownership + work-execution loop + dry-run agent "
+                               "workforce + supervisor/governance + skill evolution engine — "
+                               "localhost pilot, planning/dry-run/proposal only (no external "
+                               "writes, no live connectors, no real agent process, no live code)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],

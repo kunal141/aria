@@ -55,6 +55,15 @@ def goals_db_path() -> Path:
     return aria_data_dir() / "goals" / "store.sqlite"
 
 
+def skills_db_path() -> Path:
+    """Absolute path to the SQLite skill-evolution store (V3.5).
+
+    ``${ARIA_DATA_DIR}/skills/store.sqlite`` — same confined, gitignored runtime
+    pattern as the memory / workspace / goal stores. Never inside the source package.
+    """
+    return aria_data_dir() / "skills" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

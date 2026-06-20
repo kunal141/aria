@@ -196,6 +196,20 @@ class LedgerEventType(str, Enum):
     agent_escalation_required    = "agent_escalation_required"
     agent_budget_blocked         = "agent_budget_blocked"
     agent_dependency_blocked     = "agent_dependency_blocked"
+    # ── V3.5: skill evolution engine (GOVERNED, approval-gated, no live code) ──
+    # Detect capability gaps → propose skill → spec → test plan → evaluate →
+    # request approval → approve/reject → activate/deprecate/rollback. Activation
+    # is registry/status only; no production code is modified, nothing auto-runs.
+    skill_gap_detected           = "skill_gap_detected"
+    skill_proposal_created       = "skill_proposal_created"
+    skill_spec_generated         = "skill_spec_generated"
+    skill_test_plan_generated    = "skill_test_plan_generated"
+    skill_evaluated              = "skill_evaluated"
+    skill_approval_requested     = "skill_approval_requested"
+    skill_activated              = "skill_activated"
+    skill_rejected               = "skill_rejected"
+    skill_deprecated             = "skill_deprecated"
+    skill_rolled_back            = "skill_rolled_back"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -939,6 +953,67 @@ class AgentDependencyBlocked(LedgerEventBase):
     )
 
 
+# ── V3.5: skill evolution engine events (governed, approval-gated) ────────────
+# Minimal typed subclasses. No production code is modified by any of these — a
+# skill is documentation/config + a registry status; activation is approval-gated.
+
+
+class SkillGapDetected(LedgerEventBase):
+    """A repeated capability gap was detected from goal/agent/quality signals."""
+    event_type: Literal[LedgerEventType.skill_gap_detected] = LedgerEventType.skill_gap_detected
+
+
+class SkillProposalCreated(LedgerEventBase):
+    """A skill proposal was drafted from a detected gap (proposal only)."""
+    event_type: Literal[LedgerEventType.skill_proposal_created] = (
+        LedgerEventType.skill_proposal_created
+    )
+
+
+class SkillSpecGenerated(LedgerEventBase):
+    """A structured skill specification was generated (config/doc, not active code)."""
+    event_type: Literal[LedgerEventType.skill_spec_generated] = LedgerEventType.skill_spec_generated
+
+
+class SkillTestPlanGenerated(LedgerEventBase):
+    """A skill test plan was generated as an artifact (not executed against prod)."""
+    event_type: Literal[LedgerEventType.skill_test_plan_generated] = (
+        LedgerEventType.skill_test_plan_generated
+    )
+
+
+class SkillEvaluated(LedgerEventBase):
+    """A skill proposal was evaluated (readiness/safety/ROI — advisory only)."""
+    event_type: Literal[LedgerEventType.skill_evaluated] = LedgerEventType.skill_evaluated
+
+
+class SkillApprovalRequested(LedgerEventBase):
+    """A skill proposal was routed for explicit human approval before activation."""
+    event_type: Literal[LedgerEventType.skill_approval_requested] = (
+        LedgerEventType.skill_approval_requested
+    )
+
+
+class SkillActivated(LedgerEventBase):
+    """A skill was activated in the registry (status only) after explicit approval."""
+    event_type: Literal[LedgerEventType.skill_activated] = LedgerEventType.skill_activated
+
+
+class SkillRejected(LedgerEventBase):
+    """A skill proposal was rejected (terminal — cannot activate)."""
+    event_type: Literal[LedgerEventType.skill_rejected] = LedgerEventType.skill_rejected
+
+
+class SkillDeprecated(LedgerEventBase):
+    """An activated skill was deprecated (status only)."""
+    event_type: Literal[LedgerEventType.skill_deprecated] = LedgerEventType.skill_deprecated
+
+
+class SkillRolledBack(LedgerEventBase):
+    """An activated skill was rolled back to a prior safe (inactive) state."""
+    event_type: Literal[LedgerEventType.skill_rolled_back] = LedgerEventType.skill_rolled_back
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1010,7 +1085,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack,
     Field(discriminator="event_type"),
 ]
 
