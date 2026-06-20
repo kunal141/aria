@@ -210,6 +210,20 @@ class LedgerEventType(str, Enum):
     skill_rejected               = "skill_rejected"
     skill_deprecated             = "skill_deprecated"
     skill_rolled_back            = "skill_rolled_back"
+    # ── V3.6: work memory graph + world awareness (FIXTURE-FIRST, governed) ────
+    # A governed internal work-memory graph + fixture-only world awareness. Memory
+    # is advisory/contextual — it cannot approve actions, activate skills, or prove
+    # current facts. World ingestion is fixture-only (no live browsing/network).
+    work_memory_node_created     = "work_memory_node_created"
+    work_memory_node_redacted    = "work_memory_node_redacted"
+    work_memory_edge_created     = "work_memory_edge_created"
+    work_lesson_created          = "work_lesson_created"
+    work_lesson_disabled         = "work_lesson_disabled"
+    work_memory_consolidated     = "work_memory_consolidated"
+    world_source_registered      = "world_source_registered"
+    world_update_ingested        = "world_update_ingested"
+    world_update_scored          = "world_update_scored"
+    improvement_proposal_created = "improvement_proposal_created"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1014,6 +1028,77 @@ class SkillRolledBack(LedgerEventBase):
     event_type: Literal[LedgerEventType.skill_rolled_back] = LedgerEventType.skill_rolled_back
 
 
+# ── V3.6: work memory graph + world awareness events (fixture-first, governed) ─
+# Minimal typed subclasses. The memory graph is advisory/contextual only — it never
+# approves, activates, or proves facts. World ingestion is fixture-only.
+
+
+class WorkMemoryNodeCreated(LedgerEventBase):
+    """A source-linked work-memory node was consolidated from prior work records."""
+    event_type: Literal[LedgerEventType.work_memory_node_created] = (
+        LedgerEventType.work_memory_node_created
+    )
+
+
+class WorkMemoryNodeRedacted(LedgerEventBase):
+    """A work-memory node's content was redacted by local policy (audit row + source
+    links preserved; the human-readable summary/title are withheld)."""
+    event_type: Literal[LedgerEventType.work_memory_node_redacted] = (
+        LedgerEventType.work_memory_node_redacted
+    )
+
+
+class WorkMemoryEdgeCreated(LedgerEventBase):
+    """A typed dependency edge between two work-memory nodes was recorded."""
+    event_type: Literal[LedgerEventType.work_memory_edge_created] = (
+        LedgerEventType.work_memory_edge_created
+    )
+
+
+class WorkLessonCreated(LedgerEventBase):
+    """A reusable, source-cited lesson was generated from repeated work patterns."""
+    event_type: Literal[LedgerEventType.work_lesson_created] = LedgerEventType.work_lesson_created
+
+
+class WorkLessonDisabled(LedgerEventBase):
+    """A lesson was disabled/superseded and will not inform future recommendations."""
+    event_type: Literal[LedgerEventType.work_lesson_disabled] = LedgerEventType.work_lesson_disabled
+
+
+class WorkMemoryConsolidated(LedgerEventBase):
+    """A consolidation pass produced nodes/edges/lessons over a goal's work history."""
+    event_type: Literal[LedgerEventType.work_memory_consolidated] = (
+        LedgerEventType.work_memory_consolidated
+    )
+
+
+class WorldSourceRegistered(LedgerEventBase):
+    """An allowed external awareness source was registered (no live fetch)."""
+    event_type: Literal[LedgerEventType.world_source_registered] = (
+        LedgerEventType.world_source_registered
+    )
+
+
+class WorldUpdateIngested(LedgerEventBase):
+    """A FIXTURE world update was ingested (cited; no live browsing/network)."""
+    event_type: Literal[LedgerEventType.world_update_ingested] = (
+        LedgerEventType.world_update_ingested
+    )
+
+
+class WorldUpdateScored(LedgerEventBase):
+    """A world update was relevance-scored against ARIA goals/skills/roadmap."""
+    event_type: Literal[LedgerEventType.world_update_scored] = LedgerEventType.world_update_scored
+
+
+class ImprovementProposalCreated(LedgerEventBase):
+    """An improvement opportunity (from memory/world) was routed to the V3.5 skill
+    proposal path — proposal only, never activated here."""
+    event_type: Literal[LedgerEventType.improvement_proposal_created] = (
+        LedgerEventType.improvement_proposal_created
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1085,7 +1170,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated,
     Field(discriminator="event_type"),
 ]
 

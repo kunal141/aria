@@ -64,6 +64,15 @@ def skills_db_path() -> Path:
     return aria_data_dir() / "skills" / "store.sqlite"
 
 
+def awareness_db_path() -> Path:
+    """Absolute path to the SQLite work-memory + world-awareness store (V3.6).
+
+    ``${ARIA_DATA_DIR}/awareness/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package.
+    """
+    return aria_data_dir() / "awareness" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

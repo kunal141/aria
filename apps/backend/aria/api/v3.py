@@ -31,6 +31,17 @@ Endpoints:
     POST  /api/v3/skills/proposals                       (V3.5)
     GET   /api/v3/skills/proposals[/{id}]                (V3.5)
     POST  /api/v3/skills/proposals/{id}/spec|test-plan|evaluate|decision|rollback  (V3.5)
+    POST  /api/v3/awareness/work-memory/consolidate      (V3.6 work-memory graph)
+    GET   /api/v3/awareness/work-memory/nodes[/{id}]     (V3.6)
+    POST  /api/v3/awareness/work-memory/nodes/{id}/redact (V3.6)
+    GET   /api/v3/awareness/lessons[/{id}]               (V3.6)
+    POST  /api/v3/awareness/lessons/{id}/disable         (V3.6)
+    POST  /api/v3/awareness/world/sources/register       (V3.6 world awareness)
+    GET   /api/v3/awareness/world/sources                (V3.6)
+    POST  /api/v3/awareness/world/ingest-fixtures        (V3.6 fixture-only)
+    GET   /api/v3/awareness/world/updates|brief          (V3.6)
+    POST  /api/v3/awareness/improvements/from-update|from-node  (V3.6 → V3.5 proposal only)
+    GET   /api/v3/awareness/improvements                 (V3.6)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -49,6 +60,8 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from aria.awareness import AwarenessService, AwarenessStore, ImprovementBlocked
+from aria.awareness.store import AwarenessNotFound
 from aria.goals import (
     AgentSupervisorService,
     AgentWorkforceService,
@@ -114,6 +127,24 @@ def _build_skills():
     return goal_store, skill_store, workspace_store, skills
 
 
+def _build_awareness():
+    """Build V3.6 work-memory + world-awareness components. The awareness service
+    shares the SAME ``SkillStore`` as its V3.5 ``SkillEvolutionService`` so a routed
+    improvement's gap is visible to the proposal it creates."""
+    mode = resolve_execution_mode().value
+    goal_store = GoalStore(execution_mode=mode)
+    skill_store = SkillStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    awareness_store = AwarenessStore(execution_mode=mode)
+    skill_service = SkillEvolutionService(skill_store, goal_store=goal_store,
+                                          workspace_store=workspace_store, execution_mode=mode,
+                                          actor=actor())
+    awareness = AwarenessService(awareness_store, goal_store=goal_store, skill_store=skill_store,
+                                 skill_service=skill_service, workspace_store=workspace_store,
+                                 execution_mode=mode, actor=actor())
+    return goal_store, skill_store, workspace_store, awareness_store, awareness
+
+
 def _close(*stores) -> None:
     for s in stores:
         try:
@@ -162,6 +193,18 @@ class CreateSkillProposalRequest(BaseModel):
 
 class SkillDecisionRequest(BaseModel):
     decision: str            # approve | reject
+
+
+class ConsolidateGoalRequest(BaseModel):
+    goal_id: str = Field(min_length=1)
+
+
+class ImprovementFromUpdateRequest(BaseModel):
+    update_id: str = Field(min_length=1)
+
+
+class ImprovementFromNodeRequest(BaseModel):
+    node_id: str = Field(min_length=1)
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -577,16 +620,212 @@ def rollback_skill(proposal_id: str):
         _close(goal_store, skill_store, workspace_store)
 
 
+# ── V3.6: work-memory graph + world awareness (governed, fixture-first) ──────
+
+
+@v3_router.post("/awareness/work-memory/consolidate")
+def consolidate_work_memory(body: ConsolidateGoalRequest):
+    """Consolidate a goal's own work history into the source-linked memory graph
+    (nodes + typed edges + reusable lessons). Advisory only."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        if goal_store.get_goal(body.goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        result = awareness.consolidate_goal(body.goal_id)
+        return JSONResponse(status_code=201, content={
+            "goal_id": result.goal_id,
+            "nodes": [_dump(n) for n in result.nodes],
+            "edges": [_dump(e) for e in result.edges],
+            "lessons": [_dump(l) for l in result.lessons],
+            "summary": result.as_summary(),
+            "boundary_note": result.boundary_note,
+        })
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 consolidate_work_memory error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not consolidate work memory.")
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/work-memory/nodes")
+def list_work_memory_nodes(node_type: str | None = None, status: str | None = None):
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        nodes = awareness.list_nodes(node_type=node_type, status=status)
+        return {"nodes": [_dump(n) for n in nodes], "count": len(nodes)}
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/work-memory/nodes/{node_id}")
+def inspect_work_memory_node(node_id: str):
+    """Full provenance for a node — the node, its edges, and the lessons citing it."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        return awareness.inspect_node(node_id)
+    except AwarenessNotFound:
+        return _safe_error(404, "node_not_found", "Unknown work-memory node.")
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.post("/awareness/work-memory/nodes/{node_id}/redact")
+def redact_work_memory_node(node_id: str):
+    """Withhold a node's content (privacy/redaction) while preserving the audit row."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        return _dump(awareness.redact_node(node_id))
+    except AwarenessNotFound:
+        return _safe_error(404, "node_not_found", "Unknown work-memory node.")
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/lessons")
+def list_work_lessons(usable_only: bool = False):
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        lessons = awareness.list_lessons(usable_only=usable_only)
+        return {"lessons": [_dump(l) for l in lessons], "count": len(lessons)}
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/lessons/{lesson_id}")
+def get_work_lesson(lesson_id: str):
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        lesson = awareness.get_lesson(lesson_id)
+        if lesson is None:
+            return _safe_error(404, "lesson_not_found", "Unknown lesson.")
+        return _dump(lesson)
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.post("/awareness/lessons/{lesson_id}/disable")
+def disable_work_lesson(lesson_id: str):
+    """Turn a lesson OFF (it no longer informs recommendations); audit row preserved."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        return _dump(awareness.disable_lesson(lesson_id))
+    except AwarenessNotFound:
+        return _safe_error(404, "lesson_not_found", "Unknown lesson.")
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.post("/awareness/world/sources/register")
+def register_world_sources():
+    """Register the allowed FIXTURE sources (idempotent). No live network."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        sources = awareness.register_world_sources()
+        return JSONResponse(status_code=201, content={
+            "sources": [_dump(s) for s in sources], "count": len(sources)})
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/world/sources")
+def list_world_sources():
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        sources = awareness.list_world_sources()
+        return {"sources": [_dump(s) for s in sources], "count": len(sources)}
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.post("/awareness/world/ingest-fixtures")
+def ingest_world_fixtures():
+    """Ingest the deterministic FIXTURE updates (NO live browsing/network) and score
+    each for relevance/risk. High-risk/security advisories escalate to human review."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        updates = awareness.ingest_world()
+        return JSONResponse(status_code=201, content={
+            "updates": [_dump(u) for u in updates], "count": len(updates)})
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 ingest_world_fixtures error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not ingest world fixtures.")
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/world/updates")
+def list_world_updates():
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        updates = awareness.list_world_updates()
+        return {"updates": [_dump(u) for u in updates], "count": len(updates)}
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/world/brief")
+def world_brief():
+    """A source-cited, advisory-only digest of scored world updates."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        return awareness.world_brief()
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.post("/awareness/improvements/from-update")
+def propose_improvement_from_update(body: ImprovementFromUpdateRequest):
+    """Route a relevant, trusted world update to V3.5 as a skill PROPOSAL (only).
+    Low-trust / high-risk / low-relevance updates are refused by governance."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        imp = awareness.propose_improvement_from_update(body.update_id)
+        return JSONResponse(status_code=201, content=_dump(imp))
+    except AwarenessNotFound:
+        return _safe_error(404, "update_not_found", "Unknown world update.")
+    except ImprovementBlocked as exc:
+        return _safe_error(409, "improvement_blocked", str(exc))
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.post("/awareness/improvements/from-node")
+def propose_improvement_from_node(body: ImprovementFromNodeRequest):
+    """Route a high-signal, active work-memory node to V3.5 as a skill PROPOSAL (only)."""
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        imp = awareness.propose_improvement_from_node(body.node_id)
+        return JSONResponse(status_code=201, content=_dump(imp))
+    except AwarenessNotFound:
+        return _safe_error(404, "node_not_found", "Unknown work-memory node.")
+    except ImprovementBlocked as exc:
+        return _safe_error(409, "improvement_blocked", str(exc))
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
+@v3_router.get("/awareness/improvements")
+def list_improvements():
+    goal_store, skill_store, workspace_store, awareness_store, awareness = _build_awareness()
+    try:
+        improvements = awareness.list_improvements()
+        return {"improvements": [_dump(i) for i in improvements], "count": len(improvements)}
+    finally:
+        _close(goal_store, skill_store, workspace_store, awareness_store)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.5.0",
-                  description=("V3.1–V3.5 goal ownership + work-execution loop + dry-run agent "
-                               "workforce + supervisor/governance + skill evolution engine — "
-                               "localhost pilot, planning/dry-run/proposal only (no external "
-                               "writes, no live connectors, no real agent process, no live code)"))
+    app = FastAPI(title="ARIA V3 API", version="3.6.0",
+                  description=("V3.1–V3.6 goal ownership + work-execution loop + dry-run agent "
+                               "workforce + supervisor/governance + skill evolution engine + "
+                               "work-memory graph & world awareness — localhost pilot, "
+                               "planning/dry-run/proposal/fixture-first only (no external writes, "
+                               "no live connectors, no real agent process, no live code, no live "
+                               "browsing/network)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],
