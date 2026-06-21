@@ -235,6 +235,20 @@ class LedgerEventType(str, Enum):
     handoff_note_created          = "handoff_note_created"
     stakeholder_question_created  = "stakeholder_question_created"
     risk_escalation_drafted       = "risk_escalation_drafted"
+    # ── V3.8: scheduled routines + approved monitoring (LOCAL, FIXTURE-ONLY) ────
+    # ARIA runs recurring INTERNAL work loops on a deterministic, local, manual/
+    # due-run basis. No OS cron, no cloud scheduler, no live browsing/network, no
+    # external sends — routines produce draft artifacts + digests only.
+    routine_defined           = "routine_defined"
+    routine_enabled           = "routine_enabled"
+    routine_disabled          = "routine_disabled"
+    routine_due               = "routine_due"
+    routine_run_started       = "routine_run_started"
+    routine_run_completed     = "routine_run_completed"
+    routine_run_failed        = "routine_run_failed"
+    routine_run_missed        = "routine_run_missed"
+    routine_output_created    = "routine_output_created"
+    routine_followup_drafted  = "routine_followup_drafted"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1168,6 +1182,73 @@ class RiskEscalationDrafted(LedgerEventBase):
     )
 
 
+# ── V3.8 — scheduled routines (LOCAL / DETERMINISTIC / FIXTURE-ONLY) ──────────
+# ARIA runs recurring internal work loops. No event here browses the live web,
+# starts a background daemon, sends a message, or mutates an external system.
+
+
+class RoutineDefined(LedgerEventBase):
+    """A scheduled routine definition was created (a plan to run recurring internal
+    work — never an external action)."""
+    event_type: Literal[LedgerEventType.routine_defined] = LedgerEventType.routine_defined
+
+
+class RoutineEnabled(LedgerEventBase):
+    """A routine was enabled (eligible for manual / due-run; still local-only)."""
+    event_type: Literal[LedgerEventType.routine_enabled] = LedgerEventType.routine_enabled
+
+
+class RoutineDisabled(LedgerEventBase):
+    """A routine was disabled — a disabled routine can NEVER run."""
+    event_type: Literal[LedgerEventType.routine_disabled] = LedgerEventType.routine_disabled
+
+
+class RoutineDue(LedgerEventBase):
+    """A routine was computed due at a given local time (deterministic cadence check —
+    no background scheduler, no OS cron)."""
+    event_type: Literal[LedgerEventType.routine_due] = LedgerEventType.routine_due
+
+
+class RoutineRunStarted(LedgerEventBase):
+    """A routine run started (manual trigger or due-run evaluation)."""
+    event_type: Literal[LedgerEventType.routine_run_started] = LedgerEventType.routine_run_started
+
+
+class RoutineRunCompleted(LedgerEventBase):
+    """A routine run completed and produced internal digest/draft artifacts."""
+    event_type: Literal[LedgerEventType.routine_run_completed] = (
+        LedgerEventType.routine_run_completed
+    )
+
+
+class RoutineRunFailed(LedgerEventBase):
+    """A routine run failed safely — a class/code-only safe error is recorded; no raw
+    exception text is persisted or surfaced."""
+    event_type: Literal[LedgerEventType.routine_run_failed] = LedgerEventType.routine_run_failed
+
+
+class RoutineRunMissed(LedgerEventBase):
+    """A routine was overdue beyond its grace window and recorded as missed (stale work
+    is not silently executed)."""
+    event_type: Literal[LedgerEventType.routine_run_missed] = LedgerEventType.routine_run_missed
+
+
+class RoutineOutputCreated(LedgerEventBase):
+    """A routine produced a cited internal output (summary / digest), stored as a
+    workspace artifact — never sent."""
+    event_type: Literal[LedgerEventType.routine_output_created] = (
+        LedgerEventType.routine_output_created
+    )
+
+
+class RoutineFollowupDrafted(LedgerEventBase):
+    """A routine prepared a follow-up DRAFT (via the V3.7 collaboration layer) —
+    draft-only, never sent."""
+    event_type: Literal[LedgerEventType.routine_followup_drafted] = (
+        LedgerEventType.routine_followup_drafted
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1239,7 +1320,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted,
     Field(discriminator="event_type"),
 ]
 

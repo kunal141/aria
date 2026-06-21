@@ -83,6 +83,17 @@ def collaboration_db_path() -> Path:
     return aria_data_dir() / "collaboration" / "store.sqlite"
 
 
+def routines_db_path() -> Path:
+    """Absolute path to the SQLite scheduled-routines store (V3.8).
+
+    ``${ARIA_DATA_DIR}/routines/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package. Holds LOCAL,
+    deterministic routine definitions/runs/outputs; nothing here browses the live
+    web, runs a daemon, or performs any external action.
+    """
+    return aria_data_dir() / "routines" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

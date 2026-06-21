@@ -48,6 +48,11 @@ Endpoints:
     POST  /api/v3/collaboration/drafts/{draft_id}/mark-ready  (V3.7 — no external send)
     POST  /api/v3/collaboration/approval-requests        (V3.7 draft approval request)
     GET   /api/v3/collaboration/approval-requests        (V3.7)
+    POST  /api/v3/routines                               (V3.8 scheduled routines)
+    GET   /api/v3/routines[/{routine_id}]                (V3.8)
+    POST  /api/v3/routines/{routine_id}/enable|disable|run  (V3.8 local-only)
+    POST  /api/v3/routines/run-due                       (V3.8 deterministic due-run)
+    GET   /api/v3/routines/runs[/{run_id}]               (V3.8)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -75,6 +80,8 @@ from aria.collaboration import (
     DraftType,
 )
 from aria.collaboration.store import CollaborationIntegrityError, CollaborationNotFound
+from aria.routines import RoutineService, RoutineStore, RoutineType
+from aria.routines.store import RoutineDisabledError, RoutineNotFound
 from aria.goals import (
     AgentSupervisorService,
     AgentWorkforceService,
@@ -171,6 +178,32 @@ def _build_collaboration():
     return goal_store, awareness_store, workspace_store, collab_store, collab
 
 
+def _build_routines():
+    """Build V3.8 scheduled-routine components, wired to the goal/awareness/
+    collaboration services so routines can review state and prepare DRAFT follow-ups.
+    Local + deterministic only — no scheduler daemon, no network, no external send."""
+    mode = resolve_execution_mode().value
+    goal_store = GoalStore(execution_mode=mode)
+    awareness_store = AwarenessStore(execution_mode=mode)
+    skill_store = SkillStore(execution_mode=mode)
+    collab_store = CollaborationStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    routine_store = RoutineStore(execution_mode=mode)
+    skill_service = SkillEvolutionService(skill_store, goal_store=goal_store,
+                                          workspace_store=workspace_store, execution_mode=mode,
+                                          actor=actor())
+    awareness = AwarenessService(awareness_store, goal_store=goal_store, skill_store=skill_store,
+                                 skill_service=skill_service, workspace_store=workspace_store,
+                                 execution_mode=mode, actor=actor())
+    collab = CollaborationService(collab_store, goal_store=goal_store, awareness_store=awareness_store,
+                                  workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    routines = RoutineService(routine_store, goal_store=goal_store, awareness_service=awareness,
+                              collaboration_service=collab, workspace_store=workspace_store,
+                              execution_mode=mode, actor=actor())
+    stores = (goal_store, awareness_store, skill_store, collab_store, workspace_store, routine_store)
+    return routines, stores
+
+
 def _close(*stores) -> None:
     for s in stores:
         try:
@@ -256,6 +289,16 @@ class ApprovalRequestDraftRequest(BaseModel):
     recommended_option: str | None = None
     risk_level: str | None = None
     draft_id: str | None = None
+
+
+class CreateRoutineRequest(BaseModel):
+    name: str = Field(min_length=1)
+    routine_type: str = Field(min_length=1)
+    cadence: str = "manual"
+    interval_hours: int = 24
+    description: str = ""
+    goal_ids: list[str] = Field(default_factory=list)
+    enabled: bool = True
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -982,18 +1025,141 @@ def list_approval_requests():
         _close(goal_store, awareness_store, workspace_store, collab_store)
 
 
+# ── V3.8: scheduled routines (LOCAL / deterministic / fixture-only) ──────────
+
+
+@v3_router.post("/routines")
+def create_routine(body: CreateRoutineRequest):
+    """Define a recurring internal work loop (local + deterministic; never a daemon)."""
+    routines, stores = _build_routines()
+    try:
+        try:
+            RoutineType(body.routine_type)
+        except ValueError:
+            return _safe_error(400, "invalid_routine_type",
+                               f"Unknown routine_type. Valid: {[r.value for r in RoutineType]}.")
+        d = routines.create_routine(
+            name=body.name, routine_type=body.routine_type, cadence=body.cadence,
+            interval_hours=body.interval_hours, description=body.description,
+            goal_ids=body.goal_ids, enabled=body.enabled)
+        return JSONResponse(status_code=201, content=_dump(d))
+    except ValueError:
+        return _safe_error(400, "invalid_request", "Could not create the routine.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/routines")
+def list_routines(enabled: bool | None = None, routine_type: str | None = None):
+    routines, stores = _build_routines()
+    try:
+        defs = routines.list_routines(enabled=enabled, routine_type=routine_type)
+        return {"routines": [_dump(d) for d in defs], "count": len(defs)}
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/routines/run-due")
+def run_due_routines():
+    """Run every enabled routine that is due now (deterministic; overdue→missed)."""
+    routines, stores = _build_routines()
+    try:
+        runs = routines.run_due()
+        return {"runs": [_dump(r) for r in runs], "count": len(runs)}
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 run_due_routines error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not run due routines.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/routines/runs")
+def list_routine_runs(routine_id: str | None = None, status: str | None = None):
+    routines, stores = _build_routines()
+    try:
+        runs = routines.list_runs(routine_id=routine_id, status=status)
+        return {"runs": [_dump(r) for r in runs], "count": len(runs)}
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/routines/runs/{run_id}")
+def get_routine_run(run_id: str):
+    routines, stores = _build_routines()
+    try:
+        run = routines.get_run(run_id)
+        if run is None:
+            return _safe_error(404, "run_not_found", "Unknown routine run.")
+        outputs = routines.list_outputs(run_id=run_id)
+        return {"run": _dump(run), "outputs": [_dump(o) for o in outputs]}
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/routines/{routine_id}")
+def get_routine(routine_id: str):
+    routines, stores = _build_routines()
+    try:
+        d = routines.get_routine(routine_id)
+        if d is None:
+            return _safe_error(404, "routine_not_found", "Unknown routine.")
+        return _dump(d)
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/routines/{routine_id}/enable")
+def enable_routine(routine_id: str):
+    routines, stores = _build_routines()
+    try:
+        return _dump(routines.enable(routine_id))
+    except RoutineNotFound:
+        return _safe_error(404, "routine_not_found", "Unknown routine.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/routines/{routine_id}/disable")
+def disable_routine(routine_id: str):
+    routines, stores = _build_routines()
+    try:
+        return _dump(routines.disable(routine_id))
+    except RoutineNotFound:
+        return _safe_error(404, "routine_not_found", "Unknown routine.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/routines/{routine_id}/run")
+def run_routine(routine_id: str):
+    """Manually run a routine once (local + deterministic; no external action)."""
+    routines, stores = _build_routines()
+    try:
+        return _dump(routines.run_routine(routine_id, triggered_by="manual"))
+    except RoutineNotFound:
+        return _safe_error(404, "routine_not_found", "Unknown routine.")
+    except RoutineDisabledError:
+        return _safe_error(409, "routine_disabled", "A disabled routine cannot run.")
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 run_routine error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not run the routine.")
+    finally:
+        _close(*stores)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.7.0",
-                  description=("V3.1–V3.7 goal ownership + work-execution loop + dry-run agent "
+    app = FastAPI(title="ARIA V3 API", version="3.8.0",
+                  description=("V3.1–V3.8 goal ownership + work-execution loop + dry-run agent "
                                "workforce + supervisor/governance + skill evolution engine + "
-                               "work-memory graph & world awareness + team collaboration — "
-                               "localhost pilot, planning/dry-run/proposal/fixture-first/draft-only "
-                               "(no external writes, no live connectors, no real agent process, no "
-                               "live code, no live browsing/network, no message send/post/email)"))
+                               "work-memory graph & world awareness + team collaboration + "
+                               "scheduled routines — localhost pilot, planning/dry-run/proposal/"
+                               "fixture-first/draft-only/local-deterministic (no external writes, "
+                               "no live connectors, no real agent process, no live code, no live "
+                               "browsing/network, no message send/post/email, no cron/daemon)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],
