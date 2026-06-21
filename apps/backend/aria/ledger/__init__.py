@@ -108,6 +108,13 @@ from aria.ledger.events import (
     WorldUpdateIngested,
     WorldUpdateScored,
     ImprovementProposalCreated,
+    CollaborationContextCreated,
+    CollaborationDraftCreated,
+    CollaborationDraftUpdated,
+    ApprovalRequestDrafted,
+    HandoffNoteCreated,
+    StakeholderQuestionCreated,
+    RiskEscalationDrafted,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -209,6 +216,14 @@ __all__ = [
     "WorldUpdateIngested",
     "WorldUpdateScored",
     "ImprovementProposalCreated",
+    # V3.7 — team collaboration (draft-only) events
+    "CollaborationContextCreated",
+    "CollaborationDraftCreated",
+    "CollaborationDraftUpdated",
+    "ApprovalRequestDrafted",
+    "HandoffNoteCreated",
+    "StakeholderQuestionCreated",
+    "RiskEscalationDrafted",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

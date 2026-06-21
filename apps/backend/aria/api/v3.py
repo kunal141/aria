@@ -42,6 +42,12 @@ Endpoints:
     GET   /api/v3/awareness/world/updates|brief          (V3.6)
     POST  /api/v3/awareness/improvements/from-update|from-node  (V3.6 → V3.5 proposal only)
     GET   /api/v3/awareness/improvements                 (V3.6)
+    POST  /api/v3/collaboration/context                  (V3.7 team collaboration)
+    POST  /api/v3/collaboration/drafts                   (V3.7 draft-only)
+    GET   /api/v3/collaboration/drafts[/{draft_id}]      (V3.7)
+    POST  /api/v3/collaboration/drafts/{draft_id}/mark-ready  (V3.7 — no external send)
+    POST  /api/v3/collaboration/approval-requests        (V3.7 draft approval request)
+    GET   /api/v3/collaboration/approval-requests        (V3.7)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -62,6 +68,13 @@ from pydantic import BaseModel, Field
 
 from aria.awareness import AwarenessService, AwarenessStore, ImprovementBlocked
 from aria.awareness.store import AwarenessNotFound
+from aria.collaboration import (
+    Channel,
+    CollaborationService,
+    CollaborationStore,
+    DraftType,
+)
+from aria.collaboration.store import CollaborationIntegrityError, CollaborationNotFound
 from aria.goals import (
     AgentSupervisorService,
     AgentWorkforceService,
@@ -145,6 +158,19 @@ def _build_awareness():
     return goal_store, skill_store, workspace_store, awareness_store, awareness
 
 
+def _build_collaboration():
+    """Build V3.7 team-collaboration components. Reads goal/awareness state to assemble
+    a context and renders DRAFT-ONLY communication artifacts (no external send)."""
+    mode = resolve_execution_mode().value
+    goal_store = GoalStore(execution_mode=mode)
+    awareness_store = AwarenessStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    collab_store = CollaborationStore(execution_mode=mode)
+    collab = CollaborationService(collab_store, goal_store=goal_store, awareness_store=awareness_store,
+                                  workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    return goal_store, awareness_store, workspace_store, collab_store, collab
+
+
 def _close(*stores) -> None:
     for s in stores:
         try:
@@ -205,6 +231,31 @@ class ImprovementFromUpdateRequest(BaseModel):
 
 class ImprovementFromNodeRequest(BaseModel):
     node_id: str = Field(min_length=1)
+
+
+class CollaborationContextRequest(BaseModel):
+    goal_id: str = Field(min_length=1)
+    task_id: str | None = None
+
+
+class CollaborationDraftRequest(BaseModel):
+    goal_id: str = Field(min_length=1)
+    draft_type: str = Field(min_length=1)
+    task_id: str | None = None
+    audience: str = "manager"
+    channel: str = "internal_note"
+    context_id: str | None = None
+
+
+class ApprovalRequestDraftRequest(BaseModel):
+    goal_id: str = Field(min_length=1)
+    title: str | None = None
+    reason: str | None = None
+    requested_decision: str | None = None
+    options: list[str] | None = None
+    recommended_option: str | None = None
+    risk_level: str | None = None
+    draft_id: str | None = None
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -814,18 +865,135 @@ def list_improvements():
         _close(goal_store, skill_store, workspace_store, awareness_store)
 
 
+# ── V3.7: team collaboration (DRAFT-ONLY — no external send) ─────────────────
+
+
+@v3_router.post("/collaboration/context")
+def create_collaboration_context(body: CollaborationContextRequest):
+    """Assemble a read-only collaboration context from goal/task/agent/memory state."""
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        if goal_store.get_goal(body.goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        ctx = collab.build_context(body.goal_id, task_id=body.task_id)
+        return JSONResponse(status_code=201, content=_dump(ctx))
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 create_collaboration_context error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not assemble collaboration context.")
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
+@v3_router.post("/collaboration/drafts")
+def create_collaboration_draft(body: CollaborationDraftRequest):
+    """Generate a DRAFT communication artifact (never sent). Cites its sources."""
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        if goal_store.get_goal(body.goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        try:
+            draft_type = DraftType(body.draft_type)
+        except ValueError:
+            return _safe_error(400, "invalid_draft_type",
+                               f"Unknown draft_type. Valid: {[d.value for d in DraftType]}.")
+        try:
+            channel = Channel(body.channel)
+        except ValueError:
+            return _safe_error(400, "invalid_channel",
+                               f"Unknown channel. Valid: {[c.value for c in Channel]}.")
+        draft = collab.generate_draft(body.goal_id, draft_type, task_id=body.task_id,
+                                      audience=body.audience, channel=channel,
+                                      context_id=body.context_id)
+        return JSONResponse(status_code=201, content=_dump(draft))
+    except CollaborationNotFound:
+        return _safe_error(404, "context_not_found", "Unknown goal or context.")
+    except Exception as exc:
+        _log.error("v3 create_collaboration_draft error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not generate the draft.")
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
+@v3_router.get("/collaboration/drafts")
+def list_collaboration_drafts(goal_id: str | None = None, status: str | None = None,
+                              draft_type: str | None = None):
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        drafts = collab.list_drafts(goal_id=goal_id, status=status, draft_type=draft_type)
+        return {"drafts": [_dump(d) for d in drafts], "count": len(drafts)}
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
+@v3_router.get("/collaboration/drafts/{draft_id}")
+def get_collaboration_draft(draft_id: str):
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        draft = collab.get_draft(draft_id)
+        if draft is None:
+            return _safe_error(404, "draft_not_found", "Unknown collaboration draft.")
+        return _dump(draft)
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
+@v3_router.post("/collaboration/drafts/{draft_id}/mark-ready")
+def mark_collaboration_draft_ready(draft_id: str):
+    """Mark a draft ready for human review. This NEVER sends it externally."""
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        return _dump(collab.mark_ready(draft_id))
+    except CollaborationNotFound:
+        return _safe_error(404, "draft_not_found", "Unknown collaboration draft.")
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
+@v3_router.post("/collaboration/approval-requests")
+def create_approval_request(body: ApprovalRequestDraftRequest):
+    """Draft a human-approval request (records a request — executes/sends nothing)."""
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        if goal_store.get_goal(body.goal_id) is None:
+            return _safe_error(404, "goal_not_found", "Unknown goal.")
+        req = collab.draft_approval_request(
+            body.goal_id, title=body.title, reason=body.reason,
+            requested_decision=body.requested_decision, options=body.options,
+            recommended_option=body.recommended_option, risk_level=body.risk_level,
+            draft_id=body.draft_id)
+        return JSONResponse(status_code=201, content=_dump(req))
+    except CollaborationIntegrityError:
+        return _safe_error(409, "missing_evidence_basis",
+                           "Cannot draft an approval request without an evidence basis.")
+    except Exception as exc:
+        _log.error("v3 create_approval_request error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not draft the approval request.")
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
+@v3_router.get("/collaboration/approval-requests")
+def list_approval_requests():
+    goal_store, awareness_store, workspace_store, collab_store, collab = _build_collaboration()
+    try:
+        reqs = collab.list_approval_requests()
+        return {"approval_requests": [_dump(r) for r in reqs], "count": len(reqs)}
+    finally:
+        _close(goal_store, awareness_store, workspace_store, collab_store)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.6.0",
-                  description=("V3.1–V3.6 goal ownership + work-execution loop + dry-run agent "
+    app = FastAPI(title="ARIA V3 API", version="3.7.0",
+                  description=("V3.1–V3.7 goal ownership + work-execution loop + dry-run agent "
                                "workforce + supervisor/governance + skill evolution engine + "
-                               "work-memory graph & world awareness — localhost pilot, "
-                               "planning/dry-run/proposal/fixture-first only (no external writes, "
-                               "no live connectors, no real agent process, no live code, no live "
-                               "browsing/network)"))
+                               "work-memory graph & world awareness + team collaboration — "
+                               "localhost pilot, planning/dry-run/proposal/fixture-first/draft-only "
+                               "(no external writes, no live connectors, no real agent process, no "
+                               "live code, no live browsing/network, no message send/post/email)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],

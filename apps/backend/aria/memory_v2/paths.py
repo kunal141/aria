@@ -73,6 +73,16 @@ def awareness_db_path() -> Path:
     return aria_data_dir() / "awareness" / "store.sqlite"
 
 
+def collaboration_db_path() -> Path:
+    """Absolute path to the SQLite team-collaboration store (V3.7).
+
+    ``${ARIA_DATA_DIR}/collaboration/store.sqlite`` — same confined, gitignored
+    runtime pattern as the other stores. Never inside the source package. Holds
+    DRAFT-ONLY communication artifacts; nothing here is ever sent externally.
+    """
+    return aria_data_dir() / "collaboration" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

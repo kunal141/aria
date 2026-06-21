@@ -224,6 +224,17 @@ class LedgerEventType(str, Enum):
     world_update_ingested        = "world_update_ingested"
     world_update_scored          = "world_update_scored"
     improvement_proposal_created = "improvement_proposal_created"
+    # ── V3.7: team collaboration (DRAFT-ONLY, governed) ────────────────────────
+    # ARIA prepares manager/team updates, stakeholder questions, handoff notes,
+    # approval requests, and risk escalations as DRAFT artifacts only. Nothing is
+    # sent/posted/emailed; no external system is mutated; every draft cites sources.
+    collaboration_context_created = "collaboration_context_created"
+    collaboration_draft_created   = "collaboration_draft_created"
+    collaboration_draft_updated   = "collaboration_draft_updated"
+    approval_request_drafted      = "approval_request_drafted"
+    handoff_note_created          = "handoff_note_created"
+    stakeholder_question_created  = "stakeholder_question_created"
+    risk_escalation_drafted       = "risk_escalation_drafted"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1099,6 +1110,64 @@ class ImprovementProposalCreated(LedgerEventBase):
     )
 
 
+# ── V3.7 — team collaboration (DRAFT-ONLY) ────────────────────────────────────
+# ARIA prepares communication as draft artifacts. No event here sends, posts,
+# emails, or mutates any external system — drafts are internal, cited artifacts.
+
+
+class CollaborationContextCreated(LedgerEventBase):
+    """A read-only collaboration context (blockers/progress/questions/risks) was
+    assembled from goal/task/agent/memory state."""
+    event_type: Literal[LedgerEventType.collaboration_context_created] = (
+        LedgerEventType.collaboration_context_created
+    )
+
+
+class CollaborationDraftCreated(LedgerEventBase):
+    """A draft communication artifact (manager/team update, summary, memo, blocker
+    note, etc.) was generated — draft-only, source-cited, never sent."""
+    event_type: Literal[LedgerEventType.collaboration_draft_created] = (
+        LedgerEventType.collaboration_draft_created
+    )
+
+
+class CollaborationDraftUpdated(LedgerEventBase):
+    """A draft's status/content changed (e.g. marked ready_for_review / approved /
+    archived). Approval marks the ARTIFACT approved; it never triggers a send."""
+    event_type: Literal[LedgerEventType.collaboration_draft_updated] = (
+        LedgerEventType.collaboration_draft_updated
+    )
+
+
+class ApprovalRequestDrafted(LedgerEventBase):
+    """A human-approval request was prepared as a draft artifact (options + a
+    recommended option + evidence). It records a request; it executes nothing."""
+    event_type: Literal[LedgerEventType.approval_request_drafted] = (
+        LedgerEventType.approval_request_drafted
+    )
+
+
+class HandoffNoteCreated(LedgerEventBase):
+    """A handoff note (goal/state/blockers/artifacts/next step) draft was created."""
+    event_type: Literal[LedgerEventType.handoff_note_created] = (
+        LedgerEventType.handoff_note_created
+    )
+
+
+class StakeholderQuestionCreated(LedgerEventBase):
+    """A stakeholder clarifying-question draft was created (cited, never sent)."""
+    event_type: Literal[LedgerEventType.stakeholder_question_created] = (
+        LedgerEventType.stakeholder_question_created
+    )
+
+
+class RiskEscalationDrafted(LedgerEventBase):
+    """A risk-escalation draft was prepared for human review (recorded, not sent)."""
+    event_type: Literal[LedgerEventType.risk_escalation_drafted] = (
+        LedgerEventType.risk_escalation_drafted
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1170,7 +1239,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted,
     Field(discriminator="event_type"),
 ]
 
