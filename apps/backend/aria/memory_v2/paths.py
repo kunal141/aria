@@ -46,6 +46,76 @@ def memory_db_path() -> Path:
     return aria_data_dir() / "memory" / "store.sqlite"
 
 
+def goals_db_path() -> Path:
+    """Absolute path to the SQLite goal/roadmap/task store (V3.1).
+
+    ``${ARIA_DATA_DIR}/goals/store.sqlite`` — same confined, gitignored runtime
+    pattern as the memory and workspace stores. Never inside the source package.
+    """
+    return aria_data_dir() / "goals" / "store.sqlite"
+
+
+def skills_db_path() -> Path:
+    """Absolute path to the SQLite skill-evolution store (V3.5).
+
+    ``${ARIA_DATA_DIR}/skills/store.sqlite`` — same confined, gitignored runtime
+    pattern as the memory / workspace / goal stores. Never inside the source package.
+    """
+    return aria_data_dir() / "skills" / "store.sqlite"
+
+
+def awareness_db_path() -> Path:
+    """Absolute path to the SQLite work-memory + world-awareness store (V3.6).
+
+    ``${ARIA_DATA_DIR}/awareness/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package.
+    """
+    return aria_data_dir() / "awareness" / "store.sqlite"
+
+
+def collaboration_db_path() -> Path:
+    """Absolute path to the SQLite team-collaboration store (V3.7).
+
+    ``${ARIA_DATA_DIR}/collaboration/store.sqlite`` — same confined, gitignored
+    runtime pattern as the other stores. Never inside the source package. Holds
+    DRAFT-ONLY communication artifacts; nothing here is ever sent externally.
+    """
+    return aria_data_dir() / "collaboration" / "store.sqlite"
+
+
+def routines_db_path() -> Path:
+    """Absolute path to the SQLite scheduled-routines store (V3.8).
+
+    ``${ARIA_DATA_DIR}/routines/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package. Holds LOCAL,
+    deterministic routine definitions/runs/outputs; nothing here browses the live
+    web, runs a daemon, or performs any external action.
+    """
+    return aria_data_dir() / "routines" / "store.sqlite"
+
+
+def actions_db_path() -> Path:
+    """Absolute path to the SQLite controlled-live-execution store (V3.9).
+
+    ``${ARIA_DATA_DIR}/actions/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package. Holds action
+    intents / approvals / receipts for the governed action gate; live execution is
+    blocked by default and nothing here performs a real external write.
+    """
+    return aria_data_dir() / "actions" / "store.sqlite"
+
+
+def dashboard_db_path() -> Path:
+    """Absolute path to the SQLite manager-dashboard store (V3.10).
+
+    ``${ARIA_DATA_DIR}/dashboard/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package. Holds READ-ONLY
+    aggregated snapshots / ROI / approval-queue / risk / proof records; nothing here
+    executes work, approves anything, or performs an external action.
+    """
+    return aria_data_dir() / "dashboard" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

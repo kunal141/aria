@@ -241,6 +241,38 @@ World knowledge lives in a clearly separated, source-attributed store. It can in
 proposals and questions; it cannot override approved company/domain memory and cannot
 satisfy the evidence gate for a company metric on its own.
 
+> **V3.6 status:** the World Awareness Engine is **committed** (`c283b85`) and is
+> **fixture-only** — source registry, deterministic relevance scoring, high-risk
+> escalation, and improvement routing to V3.5 as *proposal-only*. There is no live
+> browsing/network and no runtime activation.
+
+### 7.1 Emerging Capability Radar (evolution of World Awareness — V3.8/V4)
+
+The World Awareness Engine generalizes, in a later milestone, from "world updates" to
+"**emerging external AI/agent capabilities**" — new models, agent runtimes, managed
+agent platforms, memory systems, MCP servers, frameworks, and platform patterns
+(e.g. Anthropic `launch-your-agent`, Claude Managed Agents, OpenAI Agents SDK,
+Databricks/Omnigent-style meta-harness patterns).
+
+> *"ARIA should not chase every new AI launch manually. It should maintain an
+> Emerging Capability Radar that detects new models, agent runtimes, memory systems,
+> MCP tools, frameworks, and platform patterns, then evaluates whether they should
+> become ARIA skills, adapters, runtime backends, roadmap notes, or ignored items."*
+
+> *"Claude Managed Agents, launch-your-agent, OpenAI Agents SDK, MCP servers, and
+> similar systems should be treated as possible execution backends or adapter targets
+> for ARIA, not replacements for ARIA."*
+
+> *"ARIA remains the governance, work ownership, memory, approval, Work Ledger, ROI,
+> and policy layer. External runtimes are workers/backends that ARIA may govern."*
+
+The radar reuses V3.6's `WorldSource`/`WorldUpdate` registry and relevance scoring,
+adds a *capability mapping* step and an *adapter proposal* output, and routes
+everything through the same approval-gated, proposal-only discipline. **Live source
+monitoring is V3.8 (scheduled routines + approved allowlists); external-runtime
+adapters are V4.** Full design lives in
+[`EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md`](EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md).
+
 ---
 
 ## 8. Team Interaction Layer
@@ -393,14 +425,20 @@ in order; each gates the next.
 | **V3.3** | Work Ownership Loop |
 | **V3.4** | Dynamic Agent Workforce |
 | **V3.5** | Skill Evolution Engine |
-| **V3.6** | World Awareness Engine |
+| **V3.6** | World Awareness Engine ✅ **committed (`c283b85`, fixture-only)** |
 | **V3.7** | Team Collaboration Layer |
-| **V3.8** | Scheduled Routines |
+| **V3.8** | Scheduled Routines (+ live, allowlisted **Emerging Capability Radar** monitoring) |
 | **V3.9** | Controlled Live Execution (Levels 4→6, one at a time) |
 | **V3.10** | Manager Dashboard + ROI |
+| **V4** | External runtime **adapter layer** — Claude Managed Agents / `launch-your-agent` / MCP / CLI / REST / Docker adapters; controlled experiments; limited approved live execution |
 
 Identity/authorization (§13) is a **prerequisite woven across V3.1–V3.4** and is hard
 required before V3.9.
+
+The **Emerging Capability Radar + Adapter Learning System** (the detection→mapping→
+adapter-proposal front-end for V3.8 monitoring and the V4 adapter layer) is specified
+in [`EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md`](EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md).
+**V3.7 has not started; the radar/adapter work is documentation-only.**
 
 ---
 
@@ -428,4 +466,5 @@ this document is **planning**; **no V3 capability is built**, and V3 implementat
 
 - V2 acceptance + boundaries: [`V2_CODEX_ACCEPTANCE_PACKAGE.md`](V2_CODEX_ACCEPTANCE_PACKAGE.md), [`V2_SAFETY_AND_BOUNDARY_AUDIT.md`](V2_SAFETY_AND_BOUNDARY_AUDIT.md)
 - Earlier future-architecture vision: [`V3_ROADMAP_META_HARNESS.md`](V3_ROADMAP_META_HARNESS.md)
+- Emerging Capability Radar + adapter learning (V3.8/V4 front-end): [`EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md`](EMERGING_CAPABILITY_RADAR_AND_ADAPTER_STRATEGY.md)
 - Project plan future layers: `CLAUDE.md` §28 (Subagent Instruction Engine, Agentic AI Roadmap), §26 (seven harness layers), §14 (governed self-evolution)

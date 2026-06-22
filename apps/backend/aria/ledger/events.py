@@ -152,6 +152,127 @@ class LedgerEventType(str, Enum):
     read_only_connector_invoked = "read_only_connector_invoked"
     pilot_report_created        = "pilot_report_created"
     draft_action_created        = "draft_action_created"
+    # ── V3.1: goal ownership / planning events ────────────────────────────────
+    # Genuinely new concepts (goal intake → roadmap → task board → progress).
+    # Planning only — NO execution, NO external write. Goal/roadmap/task
+    # identifiers ride in the sanitised ``metadata`` dict, so existing
+    # readers/metrics keep working and forward-compat is preserved.
+    goal_created                 = "goal_created"
+    problem_statement_generated  = "problem_statement_generated"
+    roadmap_created              = "roadmap_created"
+    task_board_created           = "task_board_created"
+    task_status_updated          = "task_status_updated"
+    goal_progress_reported       = "goal_progress_reported"
+    # ── V3.2: governed work-execution loop events ─────────────────────────────
+    # Planning/control execution only — a "work step" updates a task's planning
+    # status and produces a planning artifact; it executes no tool and writes
+    # nothing externally. Identifiers ride in the sanitised ``metadata`` dict.
+    work_step_started            = "work_step_started"
+    work_step_completed          = "work_step_completed"
+    work_step_blocked            = "work_step_blocked"
+    clarification_requested      = "clarification_requested"
+    clarification_answered       = "clarification_answered"
+    evidence_provided            = "evidence_provided"
+    progress_report_created      = "progress_report_created"
+    deliverable_tracked          = "deliverable_tracked"
+    # ── V3.3: dynamic agent workforce (DRY-RUN / fixture-first) events ─────────
+    # Planning + DRY-RUN only — no real agent process is spawned, no network, no
+    # external write. Agent/assignment identifiers ride in the sanitised metadata.
+    agent_workforce_planned      = "agent_workforce_planned"
+    agent_assignment_created     = "agent_assignment_created"
+    agent_assignment_started     = "agent_assignment_started"
+    agent_assignment_completed   = "agent_assignment_completed"
+    agent_assignment_blocked     = "agent_assignment_blocked"
+    agent_assignment_cancelled   = "agent_assignment_cancelled"
+    agent_result_merged          = "agent_result_merged"
+    # ── V3.4: agent supervisor + multi-agent governance events ────────────────
+    # Governance/supervision over the V3.3 DRY-RUN workforce — no real process, no
+    # external write. Plan/run/budget/quality/escalation ids ride in metadata.
+    agent_supervision_planned    = "agent_supervision_planned"
+    agent_supervision_started    = "agent_supervision_started"
+    agent_supervision_completed  = "agent_supervision_completed"
+    agent_supervision_blocked    = "agent_supervision_blocked"
+    agent_quality_check_failed   = "agent_quality_check_failed"
+    agent_escalation_required    = "agent_escalation_required"
+    agent_budget_blocked         = "agent_budget_blocked"
+    agent_dependency_blocked     = "agent_dependency_blocked"
+    # ── V3.5: skill evolution engine (GOVERNED, approval-gated, no live code) ──
+    # Detect capability gaps → propose skill → spec → test plan → evaluate →
+    # request approval → approve/reject → activate/deprecate/rollback. Activation
+    # is registry/status only; no production code is modified, nothing auto-runs.
+    skill_gap_detected           = "skill_gap_detected"
+    skill_proposal_created       = "skill_proposal_created"
+    skill_spec_generated         = "skill_spec_generated"
+    skill_test_plan_generated    = "skill_test_plan_generated"
+    skill_evaluated              = "skill_evaluated"
+    skill_approval_requested     = "skill_approval_requested"
+    skill_activated              = "skill_activated"
+    skill_rejected               = "skill_rejected"
+    skill_deprecated             = "skill_deprecated"
+    skill_rolled_back            = "skill_rolled_back"
+    # ── V3.6: work memory graph + world awareness (FIXTURE-FIRST, governed) ────
+    # A governed internal work-memory graph + fixture-only world awareness. Memory
+    # is advisory/contextual — it cannot approve actions, activate skills, or prove
+    # current facts. World ingestion is fixture-only (no live browsing/network).
+    work_memory_node_created     = "work_memory_node_created"
+    work_memory_node_redacted    = "work_memory_node_redacted"
+    work_memory_edge_created     = "work_memory_edge_created"
+    work_lesson_created          = "work_lesson_created"
+    work_lesson_disabled         = "work_lesson_disabled"
+    work_memory_consolidated     = "work_memory_consolidated"
+    world_source_registered      = "world_source_registered"
+    world_update_ingested        = "world_update_ingested"
+    world_update_scored          = "world_update_scored"
+    improvement_proposal_created = "improvement_proposal_created"
+    # ── V3.7: team collaboration (DRAFT-ONLY, governed) ────────────────────────
+    # ARIA prepares manager/team updates, stakeholder questions, handoff notes,
+    # approval requests, and risk escalations as DRAFT artifacts only. Nothing is
+    # sent/posted/emailed; no external system is mutated; every draft cites sources.
+    collaboration_context_created = "collaboration_context_created"
+    collaboration_draft_created   = "collaboration_draft_created"
+    collaboration_draft_updated   = "collaboration_draft_updated"
+    approval_request_drafted      = "approval_request_drafted"
+    handoff_note_created          = "handoff_note_created"
+    stakeholder_question_created  = "stakeholder_question_created"
+    risk_escalation_drafted       = "risk_escalation_drafted"
+    # ── V3.8: scheduled routines + approved monitoring (LOCAL, FIXTURE-ONLY) ────
+    # ARIA runs recurring INTERNAL work loops on a deterministic, local, manual/
+    # due-run basis. No OS cron, no cloud scheduler, no live browsing/network, no
+    # external sends — routines produce draft artifacts + digests only.
+    routine_defined           = "routine_defined"
+    routine_enabled           = "routine_enabled"
+    routine_disabled          = "routine_disabled"
+    routine_due               = "routine_due"
+    routine_run_started       = "routine_run_started"
+    routine_run_completed     = "routine_run_completed"
+    routine_run_failed        = "routine_run_failed"
+    routine_run_missed        = "routine_run_missed"
+    routine_output_created    = "routine_output_created"
+    routine_followup_drafted  = "routine_followup_drafted"
+    # ── V3.9: controlled live execution (DENY-BY-DEFAULT, dry-run/mock-only) ───
+    # A governed action gate. Live execution is BLOCKED by default; only explicitly
+    # approved, policy-allowed actions run, and only via dry-run / internal_mock —
+    # NO real connector write, network call, or external send happens in V3.9.
+    action_intent_created      = "action_intent_created"
+    action_previewed           = "action_previewed"
+    action_blocked             = "action_blocked"
+    action_approval_requested  = "action_approval_requested"
+    action_approved            = "action_approved"
+    action_rejected            = "action_rejected"
+    action_execution_started   = "action_execution_started"
+    action_executed            = "action_executed"
+    action_execution_failed    = "action_execution_failed"
+    action_receipt_created     = "action_receipt_created"
+    # ── V3.10: manager dashboard + ROI + final proof (READ-ONLY aggregation) ───
+    # A read-only manager view over all V3 systems. No event here executes work,
+    # approves anything, or performs an external action — they record that a safe,
+    # source-cited summary / proof artifact was generated.
+    dashboard_snapshot_created   = "dashboard_snapshot_created"
+    roi_summary_created          = "roi_summary_created"
+    approval_queue_summarized    = "approval_queue_summarized"
+    risk_summary_created         = "risk_summary_created"
+    v3_proof_demo_generated      = "v3_proof_demo_generated"
+    v3_acceptance_package_created = "v3_acceptance_package_created"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -688,6 +809,589 @@ class DraftActionCreated(LedgerEventBase):
     event_type: Literal[LedgerEventType.draft_action_created] = LedgerEventType.draft_action_created
 
 
+# ── V3.1: goal ownership / planning events ────────────────────────────────────
+# Minimal typed subclasses. Planning only — none of these execute work or write
+# externally. Goal/roadmap/task identifiers ride in the sanitised ``metadata`` dict.
+
+
+class GoalCreated(LedgerEventBase):
+    """A goal-intake record was created (a vague request became a structured goal)."""
+    event_type: Literal[LedgerEventType.goal_created] = LedgerEventType.goal_created
+
+
+class ProblemStatementGenerated(LedgerEventBase):
+    """A structured problem statement was generated for a goal."""
+    event_type: Literal[LedgerEventType.problem_statement_generated] = (
+        LedgerEventType.problem_statement_generated
+    )
+
+
+class RoadmapCreated(LedgerEventBase):
+    """A roadmap (phases / evidence / deliverables) was created for a goal."""
+    event_type: Literal[LedgerEventType.roadmap_created] = LedgerEventType.roadmap_created
+
+
+class TaskBoardCreated(LedgerEventBase):
+    """A planning task board (task list) was created from a roadmap."""
+    event_type: Literal[LedgerEventType.task_board_created] = LedgerEventType.task_board_created
+
+
+class TaskStatusUpdated(LedgerEventBase):
+    """A task's planning status changed (planned/in_progress/blocked/awaiting_approval/
+    completed/cancelled). Planning state only — no work was executed."""
+    event_type: Literal[LedgerEventType.task_status_updated] = LedgerEventType.task_status_updated
+
+
+class GoalProgressReported(LedgerEventBase):
+    """A goal-progress summary was produced (counts + current phase + next action)."""
+    event_type: Literal[LedgerEventType.goal_progress_reported] = (
+        LedgerEventType.goal_progress_reported
+    )
+
+
+# ── V3.2: governed work-execution loop events ─────────────────────────────────
+# Minimal typed subclasses. A "work step" is planning/control only — it moves a
+# task's planning status and produces a planning artifact; no tool runs, nothing
+# is written externally. Approval-required steps never auto-execute.
+
+
+class WorkStepStarted(LedgerEventBase):
+    """A governed execution step began (a task was selected to be worked)."""
+    event_type: Literal[LedgerEventType.work_step_started] = LedgerEventType.work_step_started
+
+
+class WorkStepCompleted(LedgerEventBase):
+    """A governed execution step completed and produced a planning artifact."""
+    event_type: Literal[LedgerEventType.work_step_completed] = LedgerEventType.work_step_completed
+
+
+class WorkStepBlocked(LedgerEventBase):
+    """A governed execution step was blocked (clarification / evidence / approval)
+    or failed safely — nothing was executed or written."""
+    event_type: Literal[LedgerEventType.work_step_blocked] = LedgerEventType.work_step_blocked
+
+
+class ClarificationRequested(LedgerEventBase):
+    """ARIA produced a clarification request because required context was missing."""
+    event_type: Literal[LedgerEventType.clarification_requested] = (
+        LedgerEventType.clarification_requested
+    )
+
+
+class ClarificationAnswered(LedgerEventBase):
+    """A human answered a clarification request (unblocks the execution loop). The
+    answer VALUES are not stored on the ledger — only the clarification_id + actor."""
+    event_type: Literal[LedgerEventType.clarification_answered] = (
+        LedgerEventType.clarification_answered
+    )
+
+
+class EvidenceProvided(LedgerEventBase):
+    """A human supplied evidence references (ARIA never fabricates evidence). The
+    refs ride in the sanitised metadata; this records who/when, for audit."""
+    event_type: Literal[LedgerEventType.evidence_provided] = LedgerEventType.evidence_provided
+
+
+class ProgressReportCreated(LedgerEventBase):
+    """A goal execution-progress report was produced from persisted state."""
+    event_type: Literal[LedgerEventType.progress_report_created] = (
+        LedgerEventType.progress_report_created
+    )
+
+
+class DeliverableTracked(LedgerEventBase):
+    """A planning/progress deliverable reference was recorded for a goal (NOT an
+    external write — a tracked artifact only)."""
+    event_type: Literal[LedgerEventType.deliverable_tracked] = LedgerEventType.deliverable_tracked
+
+
+# ── V3.3: dynamic agent workforce (DRY-RUN) events ────────────────────────────
+# Minimal typed subclasses. Planning + dry-run only — no real agent process, no
+# network, no external write. Agent/assignment ids ride in the sanitised metadata.
+
+
+class AgentWorkforcePlanned(LedgerEventBase):
+    """ARIA decomposed a goal into a bounded set of specialist agent briefs."""
+    event_type: Literal[LedgerEventType.agent_workforce_planned] = (
+        LedgerEventType.agent_workforce_planned
+    )
+
+
+class AgentAssignmentCreated(LedgerEventBase):
+    """A specialist agent assignment was created (planned, not yet run)."""
+    event_type: Literal[LedgerEventType.agent_assignment_created] = (
+        LedgerEventType.agent_assignment_created
+    )
+
+
+class AgentAssignmentStarted(LedgerEventBase):
+    """A specialist agent assignment began a DRY-RUN (deterministic, no process)."""
+    event_type: Literal[LedgerEventType.agent_assignment_started] = (
+        LedgerEventType.agent_assignment_started
+    )
+
+
+class AgentAssignmentCompleted(LedgerEventBase):
+    """A specialist agent dry-run completed and produced a findings artifact."""
+    event_type: Literal[LedgerEventType.agent_assignment_completed] = (
+        LedgerEventType.agent_assignment_completed
+    )
+
+
+class AgentAssignmentBlocked(LedgerEventBase):
+    """A specialist agent dry-run was blocked (evidence / approval) — no findings."""
+    event_type: Literal[LedgerEventType.agent_assignment_blocked] = (
+        LedgerEventType.agent_assignment_blocked
+    )
+
+
+class AgentAssignmentCancelled(LedgerEventBase):
+    """A specialist agent assignment was cancelled / killed (supervision). It
+    produces NO final findings as if completed."""
+    event_type: Literal[LedgerEventType.agent_assignment_cancelled] = (
+        LedgerEventType.agent_assignment_cancelled
+    )
+
+
+class AgentResultMerged(LedgerEventBase):
+    """Completed agent outputs were merged into one goal-level summary."""
+    event_type: Literal[LedgerEventType.agent_result_merged] = LedgerEventType.agent_result_merged
+
+
+# ── V3.4: agent supervisor + multi-agent governance events ────────────────────
+# Governance over the V3.3 dry-run workforce. No real process, no external write.
+
+
+class AgentSupervisionPlanned(LedgerEventBase):
+    """A supervisor built a governed multi-agent execution plan (order + budget)."""
+    event_type: Literal[LedgerEventType.agent_supervision_planned] = (
+        LedgerEventType.agent_supervision_planned
+    )
+
+
+class AgentSupervisionStarted(LedgerEventBase):
+    """A governed supervision run began (dry-run, dependency-ordered)."""
+    event_type: Literal[LedgerEventType.agent_supervision_started] = (
+        LedgerEventType.agent_supervision_started
+    )
+
+
+class AgentSupervisionCompleted(LedgerEventBase):
+    """A supervision run finished (completed / completed_with_blockers / etc.)."""
+    event_type: Literal[LedgerEventType.agent_supervision_completed] = (
+        LedgerEventType.agent_supervision_completed
+    )
+
+
+class AgentSupervisionBlocked(LedgerEventBase):
+    """A supervision run was blocked before/while running (budget / governance)."""
+    event_type: Literal[LedgerEventType.agent_supervision_blocked] = (
+        LedgerEventType.agent_supervision_blocked
+    )
+
+
+class AgentQualityCheckFailed(LedgerEventBase):
+    """An agent output failed a quality check and was not silently accepted."""
+    event_type: Literal[LedgerEventType.agent_quality_check_failed] = (
+        LedgerEventType.agent_quality_check_failed
+    )
+
+
+class AgentEscalationRequired(LedgerEventBase):
+    """A governance/quality/budget condition requires human review (no message sent)."""
+    event_type: Literal[LedgerEventType.agent_escalation_required] = (
+        LedgerEventType.agent_escalation_required
+    )
+
+
+class AgentBudgetBlocked(LedgerEventBase):
+    """A run/assignment was blocked because it would exceed the budget/time policy."""
+    event_type: Literal[LedgerEventType.agent_budget_blocked] = LedgerEventType.agent_budget_blocked
+
+
+class AgentDependencyBlocked(LedgerEventBase):
+    """An assignment was blocked because a prerequisite did not complete."""
+    event_type: Literal[LedgerEventType.agent_dependency_blocked] = (
+        LedgerEventType.agent_dependency_blocked
+    )
+
+
+# ── V3.5: skill evolution engine events (governed, approval-gated) ────────────
+# Minimal typed subclasses. No production code is modified by any of these — a
+# skill is documentation/config + a registry status; activation is approval-gated.
+
+
+class SkillGapDetected(LedgerEventBase):
+    """A repeated capability gap was detected from goal/agent/quality signals."""
+    event_type: Literal[LedgerEventType.skill_gap_detected] = LedgerEventType.skill_gap_detected
+
+
+class SkillProposalCreated(LedgerEventBase):
+    """A skill proposal was drafted from a detected gap (proposal only)."""
+    event_type: Literal[LedgerEventType.skill_proposal_created] = (
+        LedgerEventType.skill_proposal_created
+    )
+
+
+class SkillSpecGenerated(LedgerEventBase):
+    """A structured skill specification was generated (config/doc, not active code)."""
+    event_type: Literal[LedgerEventType.skill_spec_generated] = LedgerEventType.skill_spec_generated
+
+
+class SkillTestPlanGenerated(LedgerEventBase):
+    """A skill test plan was generated as an artifact (not executed against prod)."""
+    event_type: Literal[LedgerEventType.skill_test_plan_generated] = (
+        LedgerEventType.skill_test_plan_generated
+    )
+
+
+class SkillEvaluated(LedgerEventBase):
+    """A skill proposal was evaluated (readiness/safety/ROI — advisory only)."""
+    event_type: Literal[LedgerEventType.skill_evaluated] = LedgerEventType.skill_evaluated
+
+
+class SkillApprovalRequested(LedgerEventBase):
+    """A skill proposal was routed for explicit human approval before activation."""
+    event_type: Literal[LedgerEventType.skill_approval_requested] = (
+        LedgerEventType.skill_approval_requested
+    )
+
+
+class SkillActivated(LedgerEventBase):
+    """A skill was activated in the registry (status only) after explicit approval."""
+    event_type: Literal[LedgerEventType.skill_activated] = LedgerEventType.skill_activated
+
+
+class SkillRejected(LedgerEventBase):
+    """A skill proposal was rejected (terminal — cannot activate)."""
+    event_type: Literal[LedgerEventType.skill_rejected] = LedgerEventType.skill_rejected
+
+
+class SkillDeprecated(LedgerEventBase):
+    """An activated skill was deprecated (status only)."""
+    event_type: Literal[LedgerEventType.skill_deprecated] = LedgerEventType.skill_deprecated
+
+
+class SkillRolledBack(LedgerEventBase):
+    """An activated skill was rolled back to a prior safe (inactive) state."""
+    event_type: Literal[LedgerEventType.skill_rolled_back] = LedgerEventType.skill_rolled_back
+
+
+# ── V3.6: work memory graph + world awareness events (fixture-first, governed) ─
+# Minimal typed subclasses. The memory graph is advisory/contextual only — it never
+# approves, activates, or proves facts. World ingestion is fixture-only.
+
+
+class WorkMemoryNodeCreated(LedgerEventBase):
+    """A source-linked work-memory node was consolidated from prior work records."""
+    event_type: Literal[LedgerEventType.work_memory_node_created] = (
+        LedgerEventType.work_memory_node_created
+    )
+
+
+class WorkMemoryNodeRedacted(LedgerEventBase):
+    """A work-memory node's content was redacted by local policy (audit row + source
+    links preserved; the human-readable summary/title are withheld)."""
+    event_type: Literal[LedgerEventType.work_memory_node_redacted] = (
+        LedgerEventType.work_memory_node_redacted
+    )
+
+
+class WorkMemoryEdgeCreated(LedgerEventBase):
+    """A typed dependency edge between two work-memory nodes was recorded."""
+    event_type: Literal[LedgerEventType.work_memory_edge_created] = (
+        LedgerEventType.work_memory_edge_created
+    )
+
+
+class WorkLessonCreated(LedgerEventBase):
+    """A reusable, source-cited lesson was generated from repeated work patterns."""
+    event_type: Literal[LedgerEventType.work_lesson_created] = LedgerEventType.work_lesson_created
+
+
+class WorkLessonDisabled(LedgerEventBase):
+    """A lesson was disabled/superseded and will not inform future recommendations."""
+    event_type: Literal[LedgerEventType.work_lesson_disabled] = LedgerEventType.work_lesson_disabled
+
+
+class WorkMemoryConsolidated(LedgerEventBase):
+    """A consolidation pass produced nodes/edges/lessons over a goal's work history."""
+    event_type: Literal[LedgerEventType.work_memory_consolidated] = (
+        LedgerEventType.work_memory_consolidated
+    )
+
+
+class WorldSourceRegistered(LedgerEventBase):
+    """An allowed external awareness source was registered (no live fetch)."""
+    event_type: Literal[LedgerEventType.world_source_registered] = (
+        LedgerEventType.world_source_registered
+    )
+
+
+class WorldUpdateIngested(LedgerEventBase):
+    """A FIXTURE world update was ingested (cited; no live browsing/network)."""
+    event_type: Literal[LedgerEventType.world_update_ingested] = (
+        LedgerEventType.world_update_ingested
+    )
+
+
+class WorldUpdateScored(LedgerEventBase):
+    """A world update was relevance-scored against ARIA goals/skills/roadmap."""
+    event_type: Literal[LedgerEventType.world_update_scored] = LedgerEventType.world_update_scored
+
+
+class ImprovementProposalCreated(LedgerEventBase):
+    """An improvement opportunity (from memory/world) was routed to the V3.5 skill
+    proposal path — proposal only, never activated here."""
+    event_type: Literal[LedgerEventType.improvement_proposal_created] = (
+        LedgerEventType.improvement_proposal_created
+    )
+
+
+# ── V3.7 — team collaboration (DRAFT-ONLY) ────────────────────────────────────
+# ARIA prepares communication as draft artifacts. No event here sends, posts,
+# emails, or mutates any external system — drafts are internal, cited artifacts.
+
+
+class CollaborationContextCreated(LedgerEventBase):
+    """A read-only collaboration context (blockers/progress/questions/risks) was
+    assembled from goal/task/agent/memory state."""
+    event_type: Literal[LedgerEventType.collaboration_context_created] = (
+        LedgerEventType.collaboration_context_created
+    )
+
+
+class CollaborationDraftCreated(LedgerEventBase):
+    """A draft communication artifact (manager/team update, summary, memo, blocker
+    note, etc.) was generated — draft-only, source-cited, never sent."""
+    event_type: Literal[LedgerEventType.collaboration_draft_created] = (
+        LedgerEventType.collaboration_draft_created
+    )
+
+
+class CollaborationDraftUpdated(LedgerEventBase):
+    """A draft's status/content changed (e.g. marked ready_for_review / approved /
+    archived). Approval marks the ARTIFACT approved; it never triggers a send."""
+    event_type: Literal[LedgerEventType.collaboration_draft_updated] = (
+        LedgerEventType.collaboration_draft_updated
+    )
+
+
+class ApprovalRequestDrafted(LedgerEventBase):
+    """A human-approval request was prepared as a draft artifact (options + a
+    recommended option + evidence). It records a request; it executes nothing."""
+    event_type: Literal[LedgerEventType.approval_request_drafted] = (
+        LedgerEventType.approval_request_drafted
+    )
+
+
+class HandoffNoteCreated(LedgerEventBase):
+    """A handoff note (goal/state/blockers/artifacts/next step) draft was created."""
+    event_type: Literal[LedgerEventType.handoff_note_created] = (
+        LedgerEventType.handoff_note_created
+    )
+
+
+class StakeholderQuestionCreated(LedgerEventBase):
+    """A stakeholder clarifying-question draft was created (cited, never sent)."""
+    event_type: Literal[LedgerEventType.stakeholder_question_created] = (
+        LedgerEventType.stakeholder_question_created
+    )
+
+
+class RiskEscalationDrafted(LedgerEventBase):
+    """A risk-escalation draft was prepared for human review (recorded, not sent)."""
+    event_type: Literal[LedgerEventType.risk_escalation_drafted] = (
+        LedgerEventType.risk_escalation_drafted
+    )
+
+
+# ── V3.8 — scheduled routines (LOCAL / DETERMINISTIC / FIXTURE-ONLY) ──────────
+# ARIA runs recurring internal work loops. No event here browses the live web,
+# starts a background daemon, sends a message, or mutates an external system.
+
+
+class RoutineDefined(LedgerEventBase):
+    """A scheduled routine definition was created (a plan to run recurring internal
+    work — never an external action)."""
+    event_type: Literal[LedgerEventType.routine_defined] = LedgerEventType.routine_defined
+
+
+class RoutineEnabled(LedgerEventBase):
+    """A routine was enabled (eligible for manual / due-run; still local-only)."""
+    event_type: Literal[LedgerEventType.routine_enabled] = LedgerEventType.routine_enabled
+
+
+class RoutineDisabled(LedgerEventBase):
+    """A routine was disabled — a disabled routine can NEVER run."""
+    event_type: Literal[LedgerEventType.routine_disabled] = LedgerEventType.routine_disabled
+
+
+class RoutineDue(LedgerEventBase):
+    """A routine was computed due at a given local time (deterministic cadence check —
+    no background scheduler, no OS cron)."""
+    event_type: Literal[LedgerEventType.routine_due] = LedgerEventType.routine_due
+
+
+class RoutineRunStarted(LedgerEventBase):
+    """A routine run started (manual trigger or due-run evaluation)."""
+    event_type: Literal[LedgerEventType.routine_run_started] = LedgerEventType.routine_run_started
+
+
+class RoutineRunCompleted(LedgerEventBase):
+    """A routine run completed and produced internal digest/draft artifacts."""
+    event_type: Literal[LedgerEventType.routine_run_completed] = (
+        LedgerEventType.routine_run_completed
+    )
+
+
+class RoutineRunFailed(LedgerEventBase):
+    """A routine run failed safely — a class/code-only safe error is recorded; no raw
+    exception text is persisted or surfaced."""
+    event_type: Literal[LedgerEventType.routine_run_failed] = LedgerEventType.routine_run_failed
+
+
+class RoutineRunMissed(LedgerEventBase):
+    """A routine was overdue beyond its grace window and recorded as missed (stale work
+    is not silently executed)."""
+    event_type: Literal[LedgerEventType.routine_run_missed] = LedgerEventType.routine_run_missed
+
+
+class RoutineOutputCreated(LedgerEventBase):
+    """A routine produced a cited internal output (summary / digest), stored as a
+    workspace artifact — never sent."""
+    event_type: Literal[LedgerEventType.routine_output_created] = (
+        LedgerEventType.routine_output_created
+    )
+
+
+class RoutineFollowupDrafted(LedgerEventBase):
+    """A routine prepared a follow-up DRAFT (via the V3.7 collaboration layer) —
+    draft-only, never sent."""
+    event_type: Literal[LedgerEventType.routine_followup_drafted] = (
+        LedgerEventType.routine_followup_drafted
+    )
+
+
+# ── V3.9 — controlled live execution (DENY-BY-DEFAULT / dry-run / mock-only) ──
+# A governed action gate. No event here performs a real connector write, network
+# call, or external send — execution is dry-run or internal_mock only in V3.9.
+
+
+class ActionIntentCreated(LedgerEventBase):
+    """A typed external-action INTENT was created (a proposal to act — never an act)."""
+    event_type: Literal[LedgerEventType.action_intent_created] = (
+        LedgerEventType.action_intent_created
+    )
+
+
+class ActionPreviewed(LedgerEventBase):
+    """An action was previewed (payload/risk/required-approval/blocked-reasons) with
+    NO execution and NO connector/network call."""
+    event_type: Literal[LedgerEventType.action_previewed] = LedgerEventType.action_previewed
+
+
+class ActionBlocked(LedgerEventBase):
+    """An action was blocked by policy (deny-by-default) — it cannot proceed and left
+    no external side effect."""
+    event_type: Literal[LedgerEventType.action_blocked] = LedgerEventType.action_blocked
+
+
+class ActionApprovalRequested(LedgerEventBase):
+    """Explicit human approval was requested for a policy-allowed action."""
+    event_type: Literal[LedgerEventType.action_approval_requested] = (
+        LedgerEventType.action_approval_requested
+    )
+
+
+class ActionApproved(LedgerEventBase):
+    """An action was approved, scoped to its action_id + payload hash (a changed
+    payload requires re-approval). Approval is not a send."""
+    event_type: Literal[LedgerEventType.action_approved] = LedgerEventType.action_approved
+
+
+class ActionRejected(LedgerEventBase):
+    """An action was rejected and can never execute."""
+    event_type: Literal[LedgerEventType.action_rejected] = LedgerEventType.action_rejected
+
+
+class ActionExecutionStarted(LedgerEventBase):
+    """A governed execution attempt started (dry-run or internal_mock only in V3.9)."""
+    event_type: Literal[LedgerEventType.action_execution_started] = (
+        LedgerEventType.action_execution_started
+    )
+
+
+class ActionExecuted(LedgerEventBase):
+    """An action 'executed' in dry-run or internal_mock mode — no external system was
+    touched; the receipt is the artifact."""
+    event_type: Literal[LedgerEventType.action_executed] = LedgerEventType.action_executed
+
+
+class ActionExecutionFailed(LedgerEventBase):
+    """An execution attempt failed safely — a class/code-only safe error is recorded;
+    no raw exception text is persisted or surfaced."""
+    event_type: Literal[LedgerEventType.action_execution_failed] = (
+        LedgerEventType.action_execution_failed
+    )
+
+
+class ActionReceiptCreated(LedgerEventBase):
+    """An execution receipt (dry-run / mock / failed / blocked) was recorded, with a
+    rollback/compensation note. No external write occurred."""
+    event_type: Literal[LedgerEventType.action_receipt_created] = (
+        LedgerEventType.action_receipt_created
+    )
+
+
+# ── V3.10 — manager dashboard + ROI + final proof (READ-ONLY) ────────────────
+# These record that a safe, source-cited summary / proof artifact was generated.
+# None of them execute work, approve anything, or perform an external action.
+
+
+class DashboardSnapshotCreated(LedgerEventBase):
+    """A read-only manager dashboard snapshot aggregating all V3 systems was created."""
+    event_type: Literal[LedgerEventType.dashboard_snapshot_created] = (
+        LedgerEventType.dashboard_snapshot_created
+    )
+
+
+class RoiSummaryCreated(LedgerEventBase):
+    """A transparent, ESTIMATED ROI summary (minutes saved; cost only if configured)
+    was created."""
+    event_type: Literal[LedgerEventType.roi_summary_created] = LedgerEventType.roi_summary_created
+
+
+class ApprovalQueueSummarized(LedgerEventBase):
+    """A read-only approval-queue summary (pending items across V3) was created — no
+    approval or execution happened."""
+    event_type: Literal[LedgerEventType.approval_queue_summarized] = (
+        LedgerEventType.approval_queue_summarized
+    )
+
+
+class RiskSummaryCreated(LedgerEventBase):
+    """A source-linked risk/blocker summary was created (no invented risks)."""
+    event_type: Literal[LedgerEventType.risk_summary_created] = (
+        LedgerEventType.risk_summary_created
+    )
+
+
+class V3ProofDemoGenerated(LedgerEventBase):
+    """A deterministic, offline end-to-end V3 proof package was generated (no network,
+    no external write)."""
+    event_type: Literal[LedgerEventType.v3_proof_demo_generated] = (
+        LedgerEventType.v3_proof_demo_generated
+    )
+
+
+class V3AcceptancePackageCreated(LedgerEventBase):
+    """A V3 acceptance package record was created (documentation/proof reference)."""
+    event_type: Literal[LedgerEventType.v3_acceptance_package_created] = (
+        LedgerEventType.v3_acceptance_package_created
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -759,7 +1463,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated | DashboardSnapshotCreated | RoiSummaryCreated | ApprovalQueueSummarized | RiskSummaryCreated | V3ProofDemoGenerated | V3AcceptancePackageCreated,
     Field(discriminator="event_type"),
 ]
 
