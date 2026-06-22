@@ -105,6 +105,17 @@ def actions_db_path() -> Path:
     return aria_data_dir() / "actions" / "store.sqlite"
 
 
+def dashboard_db_path() -> Path:
+    """Absolute path to the SQLite manager-dashboard store (V3.10).
+
+    ``${ARIA_DATA_DIR}/dashboard/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package. Holds READ-ONLY
+    aggregated snapshots / ROI / approval-queue / risk / proof records; nothing here
+    executes work, approves anything, or performs an external action.
+    """
+    return aria_data_dir() / "dashboard" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

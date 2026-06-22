@@ -58,6 +58,11 @@ Endpoints:
     POST  /api/v3/actions/intents/{action_id}/preview|request-approval|approve|reject  (V3.9)
     POST  /api/v3/actions/intents/{action_id}/execute-dry-run|execute-mock  (V3.9 dry-run/mock only)
     GET   /api/v3/actions/receipts[/{receipt_id}]        (V3.9)
+    POST  /api/v3/dashboard/snapshot                     (V3.10 manager dashboard, read-only)
+    GET   /api/v3/dashboard/snapshots[/{snapshot_id}]    (V3.10)
+    GET   /api/v3/dashboard/approval-queue|risks         (V3.10 read-only)
+    POST  /api/v3/dashboard/roi                          (V3.10 estimated ROI)
+    POST  /api/v3/demo/v3-proof                          (V3.10 offline end-to-end proof)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -89,6 +94,7 @@ from aria.routines import RoutineService, RoutineStore, RoutineType
 from aria.routines.store import RoutineDisabledError, RoutineNotFound
 from aria.actions import ActionService, ActionStore, ActionType, TargetSystem
 from aria.actions.store import ActionIntegrityError, ActionNotFound
+from aria.dashboard import DashboardService, DashboardStore
 from aria.goals import (
     AgentSupervisorService,
     AgentWorkforceService,
@@ -229,6 +235,27 @@ def _build_actions():
     return actions, stores
 
 
+def _build_dashboard():
+    """Build the V3.10 read-only manager dashboard, wired to every V3 store. It only
+    READS those stores — it never executes, approves, activates, or writes externally."""
+    mode = resolve_execution_mode().value
+    goal_store = GoalStore(execution_mode=mode)
+    skill_store = SkillStore(execution_mode=mode)
+    awareness_store = AwarenessStore(execution_mode=mode)
+    collab_store = CollaborationStore(execution_mode=mode)
+    routine_store = RoutineStore(execution_mode=mode)
+    action_store = ActionStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    dashboard_store = DashboardStore(execution_mode=mode)
+    dashboard = DashboardService(
+        dashboard_store, goal_store=goal_store, skill_store=skill_store, awareness_store=awareness_store,
+        collab_store=collab_store, routine_store=routine_store, action_store=action_store,
+        workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    stores = (goal_store, skill_store, awareness_store, collab_store, routine_store, action_store,
+              workspace_store, dashboard_store)
+    return dashboard, stores
+
+
 def _close(*stores) -> None:
     for s in stores:
         try:
@@ -342,6 +369,20 @@ class CreateActionIntentRequest(BaseModel):
 class ActionDecisionRequest(BaseModel):
     approver: str | None = None
     reason: str = ""
+
+
+class DashboardSnapshotRequest(BaseModel):
+    workspace_id: str | None = None
+    hourly_cost: float | None = None
+
+
+class RoiRequest(BaseModel):
+    hourly_cost: float | None = None
+    workspace_id: str | None = None
+
+
+class ProofRequest(BaseModel):
+    workspace_id: str | None = None
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -1331,21 +1372,104 @@ def execute_action_mock(action_id: str):
         _close(*stores)
 
 
+# ── V3.10: manager dashboard + ROI + final proof (READ-ONLY) ─────────────────
+
+
+@v3_router.post("/dashboard/snapshot")
+def create_dashboard_snapshot(body: DashboardSnapshotRequest):
+    """Create a read-only manager snapshot aggregating all V3 systems (+ ROI)."""
+    dashboard, stores = _build_dashboard()
+    try:
+        snap = dashboard.create_snapshot(workspace_id=body.workspace_id, hourly_cost=body.hourly_cost)
+        return JSONResponse(status_code=201, content=_dump(snap))
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 create_dashboard_snapshot error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not create the dashboard snapshot.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/dashboard/snapshots")
+def list_dashboard_snapshots():
+    dashboard, stores = _build_dashboard()
+    try:
+        snaps = dashboard.list_snapshots()
+        return {"snapshots": snaps, "count": len(snaps)}
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/dashboard/approval-queue")
+def dashboard_approval_queue():
+    """Read-only pending-approval queue across V3 (no decision is taken here)."""
+    dashboard, stores = _build_dashboard()
+    try:
+        return _dump(dashboard.approval_queue())
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/dashboard/risks")
+def dashboard_risks():
+    """Read-only, source-linked risk/blocker summary."""
+    dashboard, stores = _build_dashboard()
+    try:
+        return _dump(dashboard.risks())
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/dashboard/roi")
+def dashboard_roi(body: RoiRequest):
+    """Transparent ESTIMATED ROI (minutes saved; cost only if an hourly rate is given)."""
+    dashboard, stores = _build_dashboard()
+    try:
+        return _dump(dashboard.roi(hourly_cost=body.hourly_cost, workspace_id=body.workspace_id))
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/dashboard/snapshots/{snapshot_id}")
+def get_dashboard_snapshot(snapshot_id: str):
+    dashboard, stores = _build_dashboard()
+    try:
+        snap = dashboard.get_snapshot(snapshot_id)
+        if snap is None:
+            return _safe_error(404, "snapshot_not_found", "Unknown dashboard snapshot.")
+        return _dump(snap)
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/demo/v3-proof")
+def generate_v3_proof(body: ProofRequest):
+    """Generate the deterministic, OFFLINE end-to-end V3 proof (no network/external write)."""
+    dashboard, stores = _build_dashboard()
+    try:
+        return JSONResponse(status_code=201,
+                           content=dashboard.generate_proof(workspace_id=body.workspace_id))
+    except Exception as exc:  # class only, never raw text
+        _log.error("v3 generate_v3_proof error (class only): %s", type(exc).__name__)
+        return _safe_error(500, "internal_error", "Could not generate the V3 proof.")
+    finally:
+        _close(*stores)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.9.0",
-                  description=("V3.1–V3.9 goal ownership + work-execution loop + dry-run agent "
+    app = FastAPI(title="ARIA V3 API", version="3.10.0",
+                  description=("V3.1–V3.10 goal ownership + work-execution loop + dry-run agent "
                                "workforce + supervisor/governance + skill evolution engine + "
                                "work-memory graph & world awareness + team collaboration + "
-                               "scheduled routines + controlled action gate — localhost pilot, "
-                               "planning/dry-run/proposal/fixture-first/draft-only/local-"
-                               "deterministic/deny-by-default (no external writes, no live "
-                               "connectors, no real agent process, no live code, no live browsing/"
-                               "network, no message send/post/email, no cron/daemon, no live "
-                               "execution — actions run dry-run/internal-mock only)"))
+                               "scheduled routines + controlled action gate + manager dashboard/"
+                               "ROI/proof — localhost pilot, planning/dry-run/proposal/fixture-"
+                               "first/draft-only/local-deterministic/deny-by-default/read-only "
+                               "(no external writes, no live connectors, no real agent process, no "
+                               "live code, no live browsing/network, no message send/post/email, no "
+                               "cron/daemon, no live execution, no deployment)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],

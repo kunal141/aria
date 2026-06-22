@@ -135,6 +135,12 @@ from aria.ledger.events import (
     ActionExecuted,
     ActionExecutionFailed,
     ActionReceiptCreated,
+    DashboardSnapshotCreated,
+    RoiSummaryCreated,
+    ApprovalQueueSummarized,
+    RiskSummaryCreated,
+    V3ProofDemoGenerated,
+    V3AcceptancePackageCreated,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -266,6 +272,13 @@ __all__ = [
     "ActionExecuted",
     "ActionExecutionFailed",
     "ActionReceiptCreated",
+    # V3.10 — manager dashboard + ROI + final proof (read-only) events
+    "DashboardSnapshotCreated",
+    "RoiSummaryCreated",
+    "ApprovalQueueSummarized",
+    "RiskSummaryCreated",
+    "V3ProofDemoGenerated",
+    "V3AcceptancePackageCreated",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",

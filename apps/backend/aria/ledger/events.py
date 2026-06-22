@@ -263,6 +263,16 @@ class LedgerEventType(str, Enum):
     action_executed            = "action_executed"
     action_execution_failed    = "action_execution_failed"
     action_receipt_created     = "action_receipt_created"
+    # ── V3.10: manager dashboard + ROI + final proof (READ-ONLY aggregation) ───
+    # A read-only manager view over all V3 systems. No event here executes work,
+    # approves anything, or performs an external action — they record that a safe,
+    # source-cited summary / proof artifact was generated.
+    dashboard_snapshot_created   = "dashboard_snapshot_created"
+    roi_summary_created          = "roi_summary_created"
+    approval_queue_summarized    = "approval_queue_summarized"
+    risk_summary_created         = "risk_summary_created"
+    v3_proof_demo_generated      = "v3_proof_demo_generated"
+    v3_acceptance_package_created = "v3_acceptance_package_created"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1334,6 +1344,54 @@ class ActionReceiptCreated(LedgerEventBase):
     )
 
 
+# ── V3.10 — manager dashboard + ROI + final proof (READ-ONLY) ────────────────
+# These record that a safe, source-cited summary / proof artifact was generated.
+# None of them execute work, approve anything, or perform an external action.
+
+
+class DashboardSnapshotCreated(LedgerEventBase):
+    """A read-only manager dashboard snapshot aggregating all V3 systems was created."""
+    event_type: Literal[LedgerEventType.dashboard_snapshot_created] = (
+        LedgerEventType.dashboard_snapshot_created
+    )
+
+
+class RoiSummaryCreated(LedgerEventBase):
+    """A transparent, ESTIMATED ROI summary (minutes saved; cost only if configured)
+    was created."""
+    event_type: Literal[LedgerEventType.roi_summary_created] = LedgerEventType.roi_summary_created
+
+
+class ApprovalQueueSummarized(LedgerEventBase):
+    """A read-only approval-queue summary (pending items across V3) was created — no
+    approval or execution happened."""
+    event_type: Literal[LedgerEventType.approval_queue_summarized] = (
+        LedgerEventType.approval_queue_summarized
+    )
+
+
+class RiskSummaryCreated(LedgerEventBase):
+    """A source-linked risk/blocker summary was created (no invented risks)."""
+    event_type: Literal[LedgerEventType.risk_summary_created] = (
+        LedgerEventType.risk_summary_created
+    )
+
+
+class V3ProofDemoGenerated(LedgerEventBase):
+    """A deterministic, offline end-to-end V3 proof package was generated (no network,
+    no external write)."""
+    event_type: Literal[LedgerEventType.v3_proof_demo_generated] = (
+        LedgerEventType.v3_proof_demo_generated
+    )
+
+
+class V3AcceptancePackageCreated(LedgerEventBase):
+    """A V3 acceptance package record was created (documentation/proof reference)."""
+    event_type: Literal[LedgerEventType.v3_acceptance_package_created] = (
+        LedgerEventType.v3_acceptance_package_created
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1405,7 +1463,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated | DashboardSnapshotCreated | RoiSummaryCreated | ApprovalQueueSummarized | RiskSummaryCreated | V3ProofDemoGenerated | V3AcceptancePackageCreated,
     Field(discriminator="event_type"),
 ]
 
