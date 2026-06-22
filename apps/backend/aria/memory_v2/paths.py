@@ -94,6 +94,17 @@ def routines_db_path() -> Path:
     return aria_data_dir() / "routines" / "store.sqlite"
 
 
+def actions_db_path() -> Path:
+    """Absolute path to the SQLite controlled-live-execution store (V3.9).
+
+    ``${ARIA_DATA_DIR}/actions/store.sqlite`` — same confined, gitignored runtime
+    pattern as the other stores. Never inside the source package. Holds action
+    intents / approvals / receipts for the governed action gate; live execution is
+    blocked by default and nothing here performs a real external write.
+    """
+    return aria_data_dir() / "actions" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

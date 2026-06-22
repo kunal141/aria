@@ -249,6 +249,20 @@ class LedgerEventType(str, Enum):
     routine_run_missed        = "routine_run_missed"
     routine_output_created    = "routine_output_created"
     routine_followup_drafted  = "routine_followup_drafted"
+    # ── V3.9: controlled live execution (DENY-BY-DEFAULT, dry-run/mock-only) ───
+    # A governed action gate. Live execution is BLOCKED by default; only explicitly
+    # approved, policy-allowed actions run, and only via dry-run / internal_mock —
+    # NO real connector write, network call, or external send happens in V3.9.
+    action_intent_created      = "action_intent_created"
+    action_previewed           = "action_previewed"
+    action_blocked             = "action_blocked"
+    action_approval_requested  = "action_approval_requested"
+    action_approved            = "action_approved"
+    action_rejected            = "action_rejected"
+    action_execution_started   = "action_execution_started"
+    action_executed            = "action_executed"
+    action_execution_failed    = "action_execution_failed"
+    action_receipt_created     = "action_receipt_created"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1249,6 +1263,77 @@ class RoutineFollowupDrafted(LedgerEventBase):
     )
 
 
+# ── V3.9 — controlled live execution (DENY-BY-DEFAULT / dry-run / mock-only) ──
+# A governed action gate. No event here performs a real connector write, network
+# call, or external send — execution is dry-run or internal_mock only in V3.9.
+
+
+class ActionIntentCreated(LedgerEventBase):
+    """A typed external-action INTENT was created (a proposal to act — never an act)."""
+    event_type: Literal[LedgerEventType.action_intent_created] = (
+        LedgerEventType.action_intent_created
+    )
+
+
+class ActionPreviewed(LedgerEventBase):
+    """An action was previewed (payload/risk/required-approval/blocked-reasons) with
+    NO execution and NO connector/network call."""
+    event_type: Literal[LedgerEventType.action_previewed] = LedgerEventType.action_previewed
+
+
+class ActionBlocked(LedgerEventBase):
+    """An action was blocked by policy (deny-by-default) — it cannot proceed and left
+    no external side effect."""
+    event_type: Literal[LedgerEventType.action_blocked] = LedgerEventType.action_blocked
+
+
+class ActionApprovalRequested(LedgerEventBase):
+    """Explicit human approval was requested for a policy-allowed action."""
+    event_type: Literal[LedgerEventType.action_approval_requested] = (
+        LedgerEventType.action_approval_requested
+    )
+
+
+class ActionApproved(LedgerEventBase):
+    """An action was approved, scoped to its action_id + payload hash (a changed
+    payload requires re-approval). Approval is not a send."""
+    event_type: Literal[LedgerEventType.action_approved] = LedgerEventType.action_approved
+
+
+class ActionRejected(LedgerEventBase):
+    """An action was rejected and can never execute."""
+    event_type: Literal[LedgerEventType.action_rejected] = LedgerEventType.action_rejected
+
+
+class ActionExecutionStarted(LedgerEventBase):
+    """A governed execution attempt started (dry-run or internal_mock only in V3.9)."""
+    event_type: Literal[LedgerEventType.action_execution_started] = (
+        LedgerEventType.action_execution_started
+    )
+
+
+class ActionExecuted(LedgerEventBase):
+    """An action 'executed' in dry-run or internal_mock mode — no external system was
+    touched; the receipt is the artifact."""
+    event_type: Literal[LedgerEventType.action_executed] = LedgerEventType.action_executed
+
+
+class ActionExecutionFailed(LedgerEventBase):
+    """An execution attempt failed safely — a class/code-only safe error is recorded;
+    no raw exception text is persisted or surfaced."""
+    event_type: Literal[LedgerEventType.action_execution_failed] = (
+        LedgerEventType.action_execution_failed
+    )
+
+
+class ActionReceiptCreated(LedgerEventBase):
+    """An execution receipt (dry-run / mock / failed / blocked) was recorded, with a
+    rollback/compensation note. No external write occurred."""
+    event_type: Literal[LedgerEventType.action_receipt_created] = (
+        LedgerEventType.action_receipt_created
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1320,7 +1405,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated,
     Field(discriminator="event_type"),
 ]
 

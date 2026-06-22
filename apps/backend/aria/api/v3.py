@@ -53,6 +53,11 @@ Endpoints:
     POST  /api/v3/routines/{routine_id}/enable|disable|run  (V3.8 local-only)
     POST  /api/v3/routines/run-due                       (V3.8 deterministic due-run)
     GET   /api/v3/routines/runs[/{run_id}]               (V3.8)
+    POST  /api/v3/actions/intents                        (V3.9 controlled action gate)
+    GET   /api/v3/actions/intents[/{action_id}]          (V3.9)
+    POST  /api/v3/actions/intents/{action_id}/preview|request-approval|approve|reject  (V3.9)
+    POST  /api/v3/actions/intents/{action_id}/execute-dry-run|execute-mock  (V3.9 dry-run/mock only)
+    GET   /api/v3/actions/receipts[/{receipt_id}]        (V3.9)
 
 Governance (identical posture to V2):
   - PLANNING ONLY — no production execution, no external writes, no connector calls.
@@ -82,6 +87,8 @@ from aria.collaboration import (
 from aria.collaboration.store import CollaborationIntegrityError, CollaborationNotFound
 from aria.routines import RoutineService, RoutineStore, RoutineType
 from aria.routines.store import RoutineDisabledError, RoutineNotFound
+from aria.actions import ActionService, ActionStore, ActionType, TargetSystem
+from aria.actions.store import ActionIntegrityError, ActionNotFound
 from aria.goals import (
     AgentSupervisorService,
     AgentWorkforceService,
@@ -204,6 +211,24 @@ def _build_routines():
     return routines, stores
 
 
+def _build_actions():
+    """Build V3.9 controlled-action components, wired to the V3.7 collaboration service
+    so a draft can become an action intent. DENY-BY-DEFAULT — dry-run/mock-only, no
+    external write, no network, no live execution."""
+    mode = resolve_execution_mode().value
+    goal_store = GoalStore(execution_mode=mode)
+    awareness_store = AwarenessStore(execution_mode=mode)
+    collab_store = CollaborationStore(execution_mode=mode)
+    workspace_store = WorkspaceStore(execution_mode=mode)
+    action_store = ActionStore(execution_mode=mode)
+    collab = CollaborationService(collab_store, goal_store=goal_store, awareness_store=awareness_store,
+                                  workspace_store=workspace_store, execution_mode=mode, actor=actor())
+    actions = ActionService(action_store, collaboration_service=collab, workspace_store=workspace_store,
+                            execution_mode=mode, actor=actor())
+    stores = (goal_store, awareness_store, collab_store, workspace_store, action_store)
+    return actions, stores
+
+
 def _close(*stores) -> None:
     for s in stores:
         try:
@@ -299,6 +324,24 @@ class CreateRoutineRequest(BaseModel):
     description: str = ""
     goal_ids: list[str] = Field(default_factory=list)
     enabled: bool = True
+
+
+class CreateActionIntentRequest(BaseModel):
+    action_type: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    target_system: str = "internal_mock"
+    description: str = ""
+    goal_id: str | None = None
+    task_id: str | None = None
+    source_refs: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    draft_refs: list[str] = Field(default_factory=list)
+    payload_preview: dict[str, Any] = Field(default_factory=dict)
+
+
+class ActionDecisionRequest(BaseModel):
+    approver: str | None = None
+    reason: str = ""
 
 
 def _safe_error(status_code: int, code: str, detail: str) -> JSONResponse:
@@ -1147,19 +1190,162 @@ def run_routine(routine_id: str):
         _close(*stores)
 
 
+# ── V3.9: controlled live execution (DENY-BY-DEFAULT / dry-run / mock-only) ──
+
+
+@v3_router.post("/actions/intents")
+def create_action_intent(body: CreateActionIntentRequest):
+    """Create an action INTENT (a proposal to act — sends/writes nothing)."""
+    actions, stores = _build_actions()
+    try:
+        try:
+            ActionType(body.action_type)
+            TargetSystem(body.target_system)
+        except ValueError:
+            return _safe_error(400, "invalid_action",
+                               "Unknown action_type or target_system.")
+        intent = actions.create_intent(
+            action_type=body.action_type, title=body.title, target_system=body.target_system,
+            description=body.description, goal_id=body.goal_id, task_id=body.task_id,
+            source_refs=body.source_refs, evidence_refs=body.evidence_refs,
+            draft_refs=body.draft_refs, payload_preview=body.payload_preview)
+        return JSONResponse(status_code=201, content=_dump(intent))
+    except ActionIntegrityError:
+        return _safe_error(400, "invalid_intent",
+                           "Missing required source refs (or evidence for external action).")
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/actions/intents")
+def list_action_intents(status: str | None = None, target_system: str | None = None):
+    actions, stores = _build_actions()
+    try:
+        intents = actions.list_intents(status=status, target_system=target_system)
+        return {"intents": [_dump(i) for i in intents], "count": len(intents)}
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/actions/receipts")
+def list_action_receipts(action_id: str | None = None):
+    actions, stores = _build_actions()
+    try:
+        recs = actions.list_receipts(action_id=action_id)
+        return {"receipts": [_dump(r) for r in recs], "count": len(recs)}
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/actions/receipts/{receipt_id}")
+def get_action_receipt(receipt_id: str):
+    actions, stores = _build_actions()
+    try:
+        rec = actions.get_receipt(receipt_id)
+        if rec is None:
+            return _safe_error(404, "receipt_not_found", "Unknown action receipt.")
+        return _dump(rec)
+    finally:
+        _close(*stores)
+
+
+@v3_router.get("/actions/intents/{action_id}")
+def get_action_intent(action_id: str):
+    actions, stores = _build_actions()
+    try:
+        intent = actions.get_intent(action_id)
+        if intent is None:
+            return _safe_error(404, "action_not_found", "Unknown action intent.")
+        return _dump(intent)
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/actions/intents/{action_id}/preview")
+def preview_action(action_id: str):
+    """Preview an action (payload/risk/required approval/blocked reasons). No execution."""
+    actions, stores = _build_actions()
+    try:
+        if actions.get_intent(action_id) is None:
+            return _safe_error(404, "action_not_found", "Unknown action intent.")
+        return actions.preview(action_id)
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/actions/intents/{action_id}/request-approval")
+def request_action_approval(action_id: str):
+    actions, stores = _build_actions()
+    try:
+        return _dump(actions.request_approval(action_id))
+    except ActionNotFound:
+        return _safe_error(404, "action_not_found", "Unknown action intent.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/actions/intents/{action_id}/approve")
+def approve_action(action_id: str, body: ActionDecisionRequest):
+    """Approve an action (bound to its payload + scope). Approval is NOT a send."""
+    actions, stores = _build_actions()
+    try:
+        return _dump(actions.approve(action_id, approver=body.approver or actor(), reason=body.reason))
+    except ActionNotFound:
+        return _safe_error(404, "action_not_found", "Unknown action intent.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/actions/intents/{action_id}/reject")
+def reject_action(action_id: str, body: ActionDecisionRequest):
+    actions, stores = _build_actions()
+    try:
+        return _dump(actions.reject(action_id, approver=body.approver or actor(), reason=body.reason))
+    except ActionNotFound:
+        return _safe_error(404, "action_not_found", "Unknown action intent.")
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/actions/intents/{action_id}/execute-dry-run")
+def execute_action_dry_run(action_id: str):
+    """Execute in DRY-RUN — writes nothing; returns a preview-style receipt."""
+    actions, stores = _build_actions()
+    try:
+        if actions.get_intent(action_id) is None:
+            return _safe_error(404, "action_not_found", "Unknown action intent.")
+        return _dump(actions.execute_dry_run(action_id))
+    finally:
+        _close(*stores)
+
+
+@v3_router.post("/actions/intents/{action_id}/execute-mock")
+def execute_action_mock(action_id: str):
+    """Execute in MOCK-LIVE — internal_mock only; writes only a local receipt."""
+    actions, stores = _build_actions()
+    try:
+        if actions.get_intent(action_id) is None:
+            return _safe_error(404, "action_not_found", "Unknown action intent.")
+        return _dump(actions.execute_mock(action_id))
+    finally:
+        _close(*stores)
+
+
 def build_v3_app():
     """Standalone FastAPI app exposing only the V3 router (used by tests/uvicorn)."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V3 API", version="3.8.0",
-                  description=("V3.1–V3.8 goal ownership + work-execution loop + dry-run agent "
+    app = FastAPI(title="ARIA V3 API", version="3.9.0",
+                  description=("V3.1–V3.9 goal ownership + work-execution loop + dry-run agent "
                                "workforce + supervisor/governance + skill evolution engine + "
                                "work-memory graph & world awareness + team collaboration + "
-                               "scheduled routines — localhost pilot, planning/dry-run/proposal/"
-                               "fixture-first/draft-only/local-deterministic (no external writes, "
-                               "no live connectors, no real agent process, no live code, no live "
-                               "browsing/network, no message send/post/email, no cron/daemon)"))
+                               "scheduled routines + controlled action gate — localhost pilot, "
+                               "planning/dry-run/proposal/fixture-first/draft-only/local-"
+                               "deterministic/deny-by-default (no external writes, no live "
+                               "connectors, no real agent process, no live code, no live browsing/"
+                               "network, no message send/post/email, no cron/daemon, no live "
+                               "execution — actions run dry-run/internal-mock only)"))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
         allow_methods=["POST", "GET", "PATCH"], allow_headers=["*"],
