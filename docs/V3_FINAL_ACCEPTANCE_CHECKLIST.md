@@ -1,8 +1,12 @@
 # ARIA V3 — Final Acceptance Checklist
 
-> **Status: V3.10 pending Codex audit** (all prior milestones accepted). This is the
-> consolidated acceptance record for the V3 program on branch
-> `v3-goal-driven-ai-employee-workforce`.
+> **Status: V3 COMPLETE — accepted, frozen, tagged, and locally merged into `master`.**
+> All ten milestones are Codex-accepted. The V3 endpoint `17021ef` is tagged
+> `aria-v3-goal-driven-workforce` (annotated) and merged via `--no-ff` (`13a33ad`,
+> parents `4bf7b91` + `17021ef`). Final audit: V3 focused **371 passed**; full backend
+> **1577 passed, 1 skipped**. **No push has occurred; public release remains BLOCKED
+> pending employer/IP approval; V4 has NOT started.** Consolidated acceptance record for
+> the V3 program on branch `v3-goal-driven-ai-employee-workforce`.
 
 ## Milestone acceptance
 
@@ -17,9 +21,10 @@
 | **V3.7** | Draft-only Team Collaboration Layer (`08a686e`) | ✅ accepted |
 | **V3.8** | Governed Scheduled Routines (`2796b86`) | ✅ accepted |
 | **V3.9** | Controlled Live Execution Layer (`fcffef2`) | ✅ accepted |
-| **V3.10** | Manager Dashboard + ROI + Final V3 Proof | ⏳ pending audit |
+| **V3.10** | Manager Dashboard + ROI + Final V3 Proof (`17021ef`) | ✅ accepted |
 
-(Emerging Capability Radar documentation accepted at `c105cc0`.)
+(Emerging Capability Radar documentation accepted at `c105cc0`. V3 merged into `master`
+at `13a33ad`; tag `aria-v3-goal-driven-workforce` → `17021ef`.)
 
 ## Boundary acceptance (all enforced in code + tests)
 

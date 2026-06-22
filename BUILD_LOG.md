@@ -372,3 +372,44 @@ baseline 1027 passed / 1 skipped. **Week 30 Launch Readiness is ACCEPTED.**
 **Closeout boundaries (unchanged):** no vLLM serving, no real fine-tuning, no production
 deployment, no production graph / model-router change. **Public GitHub / LinkedIn publication
 remains BLOCKED** pending employer/IP approval — the public-safe artifacts are **drafts only**.
+
+---
+
+## ARIA V3 — Goal-Driven AI Employee Workforce — COMPLETE — merge `13a33ad` (2026-06-22)
+
+**Tag**: `aria-v3-goal-driven-workforce` (annotated) → V3 endpoint `17021ef`
+**Merge**: `--no-ff` into `master` (`13a33ad`, parents `4bf7b91` + `17021ef`); merged tree
+byte-identical to the accepted V3.10 tree.
+
+### Milestones (all independently ACCEPTED by Codex)
+| Milestone | Scope | Commit |
+|---|---|---|
+| V3.1 | Goal Ownership Foundation | `af17fe3` |
+| V3.2 | Work Execution Loop + Progress Tracking | `4c89685` |
+| V3.3 | Dynamic Agent Workforce (dry-run) | `ccf1188` |
+| V3.4 | Agent Supervisor + Multi-Agent Governance | `1df736f` |
+| V3.5 | Governed Skill Evolution Engine | `873c796` |
+| V3.6 | Work Memory Graph + World Awareness Engine | `c283b85` |
+| — | Emerging Capability Radar + Adapter Strategy docs | `c105cc0` |
+| V3.7 | Draft-only Team Collaboration Layer | `08a686e` |
+| V3.8 | Governed Scheduled Routines | `2796b86` |
+| V3.9 | Controlled Live Execution Layer | `fcffef2` |
+| V3.10 | Manager Dashboard + ROI + Final Proof | `17021ef` |
+
+### Final freeze + post-merge audit (no findings)
+- V3 focused tests: **371 passed** (V3.1=31, V3.2=35, V3.3=28, V3.4=32, V3.5=32, V3.6=44,
+  V3.7=34, V3.8=41, V3.9=56, V3.10=38)
+- Full backend: **1577 passed, 1 skipped**
+- compile clean · `git diff --check` clean · working tree clean
+
+### Boundaries (enforced in code + tests, unchanged)
+Deny-by-default controlled action gate (dry-run / internal-mock only; live disabled +
+store-enforced); draft-only collaboration; fixture-only world awareness; local deterministic
+routines (no cron/daemon/network); read-only manager dashboard with estimated/evidence-backed
+ROI. No live writes, no connector writes, no runtime adapters, no Managed-Agent/launch-your-
+agent/MCP runtime, no automatic approval, no automatic skill activation, no self-modifying
+production code, no deployment. All stores `${ARIA_DATA_DIR}`-confined with audit outboxes;
+secrets masked / structural-secret refs rejected; `ARIA_USER_ID` attribution-only.
+
+**No push has occurred (no remote configured). Public GitHub / LinkedIn release remains
+BLOCKED pending employer/IP approval. V4 has NOT started.**

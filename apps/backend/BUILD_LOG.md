@@ -4,6 +4,21 @@
 
 ---
 
+> **LATEST OFFICIAL STATUS (2026-06-22): ARIA V3 — Goal-Driven AI Employee Workforce is
+> COMPLETE and locally merged into `master`.** All ten milestones (V3.1–V3.10) are
+> Codex-accepted on branch `v3-goal-driven-ai-employee-workforce`; the V3 endpoint
+> `17021ef` is tagged `aria-v3-goal-driven-workforce` and merged via `--no-ff`
+> (`13a33ad`). Final audit: V3 focused **371 passed**; full backend **1577 passed, 1
+> skipped**; compile clean; `git diff --check` clean. V3 lives under
+> `aria/{goals,skill_evolution,awareness,collaboration,routines,actions,dashboard}` +
+> `aria/demo/v3_proof.py` — governed end-to-end (deny-by-default action gate, draft-only
+> collaboration, fixture-only world awareness, local deterministic routines, read-only
+> manager dashboard + estimated ROI). **No push has occurred. Public release remains
+> BLOCKED pending employer/IP approval. V4 has NOT started.** (The step-by-step rebuild
+> guide below is the original Weeks 3+ learning log and is retained as-is.)
+
+---
+
 ## How to Use This Log
 
 Each step has:
