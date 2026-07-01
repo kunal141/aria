@@ -298,10 +298,15 @@ approval, memory, ledger, ROI, and policy layer around it.
 - MCP / CLI / REST / Docker agent adapters
 - controlled experiments
 - limited approved live execution
+- **Model Router + Sovereignty Layer** and an **Evaluation Harness Hook** (V4.1 design
+  requirements — contracts/policy only)
 
 The Emerging Capability Radar is the **detection + mapping front-end**; the V3
 meta-harness adapter layer (`docs/V3_ROADMAP_META_HARNESS.md` §5) is the **governed
-execution back-end** it eventually feeds. Both are roadmap-only.
+execution back-end** it eventually feeds. Both are roadmap-only. The tight V4.1 scope —
+adapter contracts, model/router + sovereignty contracts, evaluation hooks, and an
+internal mock adapter only (no real external execution) — is specified in
+[`V4_SCOPE_AND_DESIGN_REQUIREMENTS.md`](V4_SCOPE_AND_DESIGN_REQUIREMENTS.md).
 
 ---
 
