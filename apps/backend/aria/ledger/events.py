@@ -273,6 +273,21 @@ class LedgerEventType(str, Enum):
     risk_summary_created         = "risk_summary_created"
     v3_proof_demo_generated      = "v3_proof_demo_generated"
     v3_acceptance_package_created = "v3_acceptance_package_created"
+    # ── V4.1: external runtime adapter foundation (MOCK/LOCAL-ONLY) ─────────────
+    # ARIA governs external runtimes as replaceable workers. In V4.1 ONLY the
+    # internal_mock adapter executes (preview / dry-run / mock); every other adapter
+    # type is a future stub that hard-blocks. No event here calls a real external
+    # runtime, model API, network, SDK, or credential — deny-by-default, no live.
+    runtime_adapter_registered          = "runtime_adapter_registered"
+    runtime_adapter_enabled             = "runtime_adapter_enabled"
+    runtime_adapter_disabled            = "runtime_adapter_disabled"
+    runtime_adapter_request_created     = "runtime_adapter_request_created"
+    runtime_adapter_previewed           = "runtime_adapter_previewed"
+    runtime_adapter_blocked             = "runtime_adapter_blocked"
+    runtime_adapter_dry_run_completed   = "runtime_adapter_dry_run_completed"
+    runtime_adapter_mock_completed      = "runtime_adapter_mock_completed"
+    runtime_adapter_execution_failed    = "runtime_adapter_execution_failed"
+    runtime_adapter_receipt_created     = "runtime_adapter_receipt_created"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1392,6 +1407,86 @@ class V3AcceptancePackageCreated(LedgerEventBase):
     )
 
 
+# ── V4.1 — external runtime adapter foundation (MOCK/LOCAL-ONLY) ──────────────
+# No event here calls a real external runtime, model API, network, SDK, or credential.
+# Only the internal_mock adapter executes; all other adapter types hard-block.
+
+
+class RuntimeAdapterRegistered(LedgerEventBase):
+    """A runtime adapter definition was registered (a governed description of a
+    worker/backend — never a live connection)."""
+    event_type: Literal[LedgerEventType.runtime_adapter_registered] = (
+        LedgerEventType.runtime_adapter_registered
+    )
+
+
+class RuntimeAdapterEnabled(LedgerEventBase):
+    """A runtime adapter was enabled (eligible for governed mock/dry-run only)."""
+    event_type: Literal[LedgerEventType.runtime_adapter_enabled] = (
+        LedgerEventType.runtime_adapter_enabled
+    )
+
+
+class RuntimeAdapterDisabled(LedgerEventBase):
+    """A runtime adapter was disabled — a disabled adapter can never run."""
+    event_type: Literal[LedgerEventType.runtime_adapter_disabled] = (
+        LedgerEventType.runtime_adapter_disabled
+    )
+
+
+class RuntimeAdapterRequestCreated(LedgerEventBase):
+    """A bounded runtime-adapter request was created (a proposal to run a worker)."""
+    event_type: Literal[LedgerEventType.runtime_adapter_request_created] = (
+        LedgerEventType.runtime_adapter_request_created
+    )
+
+
+class RuntimeAdapterPreviewed(LedgerEventBase):
+    """A runtime-adapter request was previewed (no execution, no network, no SDK call)."""
+    event_type: Literal[LedgerEventType.runtime_adapter_previewed] = (
+        LedgerEventType.runtime_adapter_previewed
+    )
+
+
+class RuntimeAdapterBlocked(LedgerEventBase):
+    """A runtime-adapter request was blocked by policy (deny-by-default) — e.g. a
+    future/external adapter type, live mode, or missing source/evidence."""
+    event_type: Literal[LedgerEventType.runtime_adapter_blocked] = (
+        LedgerEventType.runtime_adapter_blocked
+    )
+
+
+class RuntimeAdapterDryRunCompleted(LedgerEventBase):
+    """The internal_mock adapter completed a dry-run (wrote nothing external)."""
+    event_type: Literal[LedgerEventType.runtime_adapter_dry_run_completed] = (
+        LedgerEventType.runtime_adapter_dry_run_completed
+    )
+
+
+class RuntimeAdapterMockCompleted(LedgerEventBase):
+    """The internal_mock adapter completed a mock run (local receipt only; no external
+    system touched)."""
+    event_type: Literal[LedgerEventType.runtime_adapter_mock_completed] = (
+        LedgerEventType.runtime_adapter_mock_completed
+    )
+
+
+class RuntimeAdapterExecutionFailed(LedgerEventBase):
+    """A runtime-adapter execution failed safely — a class/code-only safe error is
+    recorded; no raw exception text is persisted or surfaced."""
+    event_type: Literal[LedgerEventType.runtime_adapter_execution_failed] = (
+        LedgerEventType.runtime_adapter_execution_failed
+    )
+
+
+class RuntimeAdapterReceiptCreated(LedgerEventBase):
+    """A runtime-adapter receipt (preview / blocked / dry-run / mock / failed) was
+    recorded. No external write occurred."""
+    event_type: Literal[LedgerEventType.runtime_adapter_receipt_created] = (
+        LedgerEventType.runtime_adapter_receipt_created
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1463,7 +1558,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated | DashboardSnapshotCreated | RoiSummaryCreated | ApprovalQueueSummarized | RiskSummaryCreated | V3ProofDemoGenerated | V3AcceptancePackageCreated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated | DashboardSnapshotCreated | RoiSummaryCreated | ApprovalQueueSummarized | RiskSummaryCreated | V3ProofDemoGenerated | V3AcceptancePackageCreated | RuntimeAdapterRegistered | RuntimeAdapterEnabled | RuntimeAdapterDisabled | RuntimeAdapterRequestCreated | RuntimeAdapterPreviewed | RuntimeAdapterBlocked | RuntimeAdapterDryRunCompleted | RuntimeAdapterMockCompleted | RuntimeAdapterExecutionFailed | RuntimeAdapterReceiptCreated,
     Field(discriminator="event_type"),
 ]
 

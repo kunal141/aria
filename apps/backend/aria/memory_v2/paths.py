@@ -116,6 +116,18 @@ def dashboard_db_path() -> Path:
     return aria_data_dir() / "dashboard" / "store.sqlite"
 
 
+def runtime_adapters_db_path() -> Path:
+    """Absolute path to the SQLite runtime-adapter store (V4.1).
+
+    ``${ARIA_DATA_DIR}/runtime_adapters/store.sqlite`` — same confined, gitignored
+    runtime pattern as the other stores. Never inside the source package. Holds adapter
+    definitions / capabilities / requests / receipts for the governed adapter layer;
+    only the internal_mock adapter executes (dry-run / mock), and nothing here performs
+    a real external runtime, model, network, or credential call.
+    """
+    return aria_data_dir() / "runtime_adapters" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"
