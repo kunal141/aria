@@ -426,7 +426,8 @@ class RuntimeAdapterStore:
                           actor=actor, actor_type=ActorType.aria, request_id=r.request_id,
                           adapter_id=r.adapter_id, goal_id=r.goal_id, task_ref=r.task_id,
                           workspace_id=r.workspace_id, execution_mode=r.execution_mode.value,
-                          correlation_id=r.request_id, status=r.status.value, outcome="request_created")
+                          correlation_id=r.task_id or r.request_id,
+                          status=r.status.value, outcome="request_created")
         self.flush_outbox()
         return self.get_request(r.request_id)  # type: ignore[return-value]
 
@@ -489,14 +490,16 @@ class RuntimeAdapterStore:
                           adapter_id=receipt.adapter_id, adapter_type=definition.adapter_type.value,
                           receipt_id=receipt.receipt_id, goal_id=resolved_goal_id,
                           workspace_id=resolved_workspace_id,
-                          execution_mode=receipt.execution_mode.value, correlation_id=receipt.request_id,
+                          execution_mode=receipt.execution_mode.value,
+                          correlation_id=request.task_id or receipt.request_id,
                           status=receipt.status.value, safe_error=receipt.safe_error, risk_level=risk,
                           outcome=receipt.status.value)
             self._enqueue(conn, LedgerEventType.runtime_adapter_receipt_created,
                           task_id=receipt.receipt_id, actor=actor, actor_type=ActorType.aria,
                           request_id=receipt.request_id, adapter_id=receipt.adapter_id,
                           receipt_id=receipt.receipt_id, execution_mode=receipt.execution_mode.value,
-                          correlation_id=receipt.request_id, status=receipt.status.value,
+                          correlation_id=request.task_id or receipt.request_id,
+                          status=receipt.status.value,
                           outcome="receipt_created")
         self.flush_outbox()
         return self.get_receipt(receipt.receipt_id)  # type: ignore[return-value]

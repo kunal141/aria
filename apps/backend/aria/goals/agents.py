@@ -171,6 +171,56 @@ class AgentWorkforceService:
         return AgentPlan(goal_id=goal_id, briefs=self._store.get_agent_briefs(goal_id),
                          assignments=self._store.get_agent_assignments(goal_id))
 
+    def plan_evidence_backed_analysis(
+        self, goal_id: str, *, evidence_refs: list[str], actor: str | None = None,
+    ) -> AgentPlan:
+        """Plan one bounded analytics worker against the caller's persisted evidence.
+
+        This is the integrated employee path. It deliberately does not reuse the
+        generic metric-investigation templates, whose named evidence requirements
+        may not exist in a supplied fixture. The exact evidence references become
+        the worker's required inputs, so supervision can only complete the worker
+        after those same references have been recorded for the goal.
+        """
+        actor = actor or self._actor
+        goal = self._store.get_goal(goal_id)
+        if goal is None:
+            raise GoalNotFound(f"goal {goal_id!r} not found")
+        if not evidence_refs or any(not ref.strip() for ref in evidence_refs):
+            raise ValueError("evidence-backed analysis requires non-empty evidence refs")
+        existing = self._store.get_agent_briefs(goal_id)
+        if existing:
+            return AgentPlan(
+                goal_id=goal_id, briefs=existing,
+                assignments=self._store.get_agent_assignments(goal_id),
+            )
+        now = _now()
+        agent_id = f"agent-{uuid.uuid4().hex}"
+        brief = AgentBrief(
+            agent_id=agent_id, goal_id=goal_id, name="Business Performance Analysis Agent",
+            role="analytics", objective=(
+                "Analyse the supplied business-performance fixture and produce cited, "
+                "manager-ready findings without inferring an unsupported root cause."
+            ),
+            allowed_context=["goal_brief", "roadmap", "fixtures"],
+            forbidden_context=list(_FORBIDDEN_CONTEXT), allowed_tools=["read_events"],
+            forbidden_tools=list(_FORBIDDEN_WRITE_TOOLS),
+            required_inputs=list(dict.fromkeys(evidence_refs)),
+            expected_output_schema="BusinessPerformanceFindings",
+            approval_required=False, risk_level="low", time_limit_seconds=60,
+            cost_limit_units=1, status=AgentStatus.planned, created_at=now, updated_at=now,
+        )
+        assignment = AgentAssignment(
+            assignment_id=f"assign-{uuid.uuid4().hex}", agent_id=agent_id,
+            goal_id=goal_id, workspace_id=goal.workspace_id,
+            input_summary=f"evidence refs: {len(brief.required_inputs)}",
+            status=AgentStatus.planned, approval_required=False,
+            max_runtime_seconds=60, max_cost_units=1, risk_level="low", supervisor=actor,
+        )
+        self._store.save_agent_plan([brief], [assignment], actor=actor)
+        self._attach_plan_to_workspace(goal, [brief], [assignment], actor=actor)
+        return AgentPlan(goal_id=goal_id, briefs=[brief], assignments=[assignment])
+
     # ── 3. Dry-run executor + 4. merger ──────────────────────────────────────
 
     def run_dry(self, goal_id: str, *, actor: str | None = None) -> AgentMergeResult:

@@ -128,6 +128,29 @@ def runtime_adapters_db_path() -> Path:
     return aria_data_dir() / "runtime_adapters" / "store.sqlite"
 
 
+def model_routing_db_path() -> Path:
+    """Absolute path to the SQLite model-routing store (V4.2).
+
+    ``${ARIA_DATA_DIR}/model_routing/store.sqlite`` — same confined, gitignored
+    runtime pattern as the other stores. Never inside the source package. Holds model
+    provider registry / capability-cost-risk profiles / fallback + sovereignty policies /
+    route requests / route decisions for the governed model-routing layer. Every route is
+    a DECISION only — nothing here executes a model, calls a provider, uses a network, or
+    touches a credential.
+    """
+    return aria_data_dir() / "model_routing" / "store.sqlite"
+
+
+def employee_runs_db_path() -> Path:
+    """Confined SQLite store for integrated virtual-employee runs.
+
+    The final orchestration layer persists correlations, attempts, evaluations, repair
+    plans and manager outcomes under ``${ARIA_DATA_DIR}/employee_runs/store.sqlite``.
+    It never stores runtime data inside the importable source package.
+    """
+    return aria_data_dir() / "employee_runs" / "store.sqlite"
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

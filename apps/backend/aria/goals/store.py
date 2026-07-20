@@ -689,6 +689,7 @@ class GoalStore:
 
     def answer_clarification(
         self, clarification_id: str, answers: dict[str, str], *, actor: str = "human:local",
+        actor_type: ActorType = ActorType.human,
     ) -> ClarificationRequest:
         conn = self._connect()
         clar = self.get_clarification(clarification_id)
@@ -706,7 +707,7 @@ class GoalStore:
             # only the clarification_id + actor + answer count).
             self._enqueue(
                 conn, LedgerEventType.clarification_answered, task_id=clar.task_id or clar.goal_id,
-                actor=actor, actor_type=ActorType.human, goal_id=clar.goal_id, task_ref=clar.task_id,
+                actor=actor, actor_type=actor_type, goal_id=clar.goal_id, task_ref=clar.task_id,
                 clarification_id=clarification_id, correlation_id=clar.goal_id,
                 outcome=f"answers={len(safe_answers)}", evidence_status="clarified",
             )

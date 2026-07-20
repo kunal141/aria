@@ -238,7 +238,7 @@ def build_v4_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="ARIA V4 API", version="4.1.0",
+    app = FastAPI(title="ARIA V4 API", version="4.3.0",
                   description=("V4.1 external runtime adapter foundation — governed adapter "
                                "definitions + deny-by-default gate + internal_mock execution "
                                "(preview/dry-run/mock) + future stubs (hard-blocked) + model "
@@ -250,4 +250,9 @@ def build_v4_app():
         allow_methods=["POST", "GET"], allow_headers=["*"],
     )
     app.include_router(v4_router)
+    # V4.2 — additive: mount the governed model-routing router on the same /api/v4 surface.
+    from aria.api.v4_routing import v4_routing_router
+    app.include_router(v4_routing_router)
+    from aria.api.v4_employee import v4_employee_router
+    app.include_router(v4_employee_router)
     return app

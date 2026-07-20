@@ -288,6 +288,13 @@ class LedgerEventType(str, Enum):
     runtime_adapter_mock_completed      = "runtime_adapter_mock_completed"
     runtime_adapter_execution_failed    = "runtime_adapter_execution_failed"
     runtime_adapter_receipt_created     = "runtime_adapter_receipt_created"
+    # V4.2 — model router + sovereignty mock layer (decision-only)
+    model_provider_registered           = "model_provider_registered"
+    model_provider_status_changed       = "model_provider_status_changed"
+    model_route_requested               = "model_route_requested"
+    model_route_decided                 = "model_route_decided"
+    model_route_blocked                 = "model_route_blocked"
+    model_route_fallback_applied        = "model_route_fallback_applied"
     # Legacy compatibility tags (not emitted by the v2 writer; only appear
     # via the unified reader when adapting older JSONL files).
     legacy_task         = "legacy_task"
@@ -1487,6 +1494,59 @@ class RuntimeAdapterReceiptCreated(LedgerEventBase):
     )
 
 
+# ── V4.2 — model router + sovereignty mock layer (DECISION-ONLY) ──────────────
+# No event here executes a model, calls a provider, uses a network/SDK, or touches a
+# credential. Providers are declared metadata; every route is a decision (executed=False).
+
+
+class ModelProviderRegistered(LedgerEventBase):
+    """A model provider was registered — declared registry metadata, never a live
+    SDK client and never a credential."""
+    event_type: Literal[LedgerEventType.model_provider_registered] = (
+        LedgerEventType.model_provider_registered
+    )
+
+
+class ModelProviderStatusChanged(LedgerEventBase):
+    """A model provider's status changed (enabled / disabled / outage /
+    export_restricted). Status governs eligibility for routing decisions only."""
+    event_type: Literal[LedgerEventType.model_provider_status_changed] = (
+        LedgerEventType.model_provider_status_changed
+    )
+
+
+class ModelRouteRequested(LedgerEventBase):
+    """A bounded model-route request was created (a proposal to choose a model by
+    policy — never a model call)."""
+    event_type: Literal[LedgerEventType.model_route_requested] = (
+        LedgerEventType.model_route_requested
+    )
+
+
+class ModelRouteDecided(LedgerEventBase):
+    """A model-route decision was made and persisted — a governed choice of model
+    category/provider. ``executed`` is structurally False; no model ran."""
+    event_type: Literal[LedgerEventType.model_route_decided] = (
+        LedgerEventType.model_route_decided
+    )
+
+
+class ModelRouteBlocked(LedgerEventBase):
+    """A model-route request was blocked (no eligible provider after sovereignty /
+    outage / export-control exclusions and fallback). No model ran."""
+    event_type: Literal[LedgerEventType.model_route_blocked] = (
+        LedgerEventType.model_route_blocked
+    )
+
+
+class ModelRouteFallbackApplied(LedgerEventBase):
+    """The primary category had no eligible provider, so the fallback chain was
+    walked to reach the chosen model. Still a decision only — no model ran."""
+    event_type: Literal[LedgerEventType.model_route_fallback_applied] = (
+        LedgerEventType.model_route_fallback_applied
+    )
+
+
 # ── Legacy adapter records ────────────────────────────────────────────────────
 
 
@@ -1558,7 +1618,7 @@ class LegacyEvolutionRecord(BaseModel):
 # as their own typed objects (not part of this union) since they are
 # never written by the v2 writer.
 LedgerEvent = Annotated[
-    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated | DashboardSnapshotCreated | RoiSummaryCreated | ApprovalQueueSummarized | RiskSummaryCreated | V3ProofDemoGenerated | V3AcceptancePackageCreated | RuntimeAdapterRegistered | RuntimeAdapterEnabled | RuntimeAdapterDisabled | RuntimeAdapterRequestCreated | RuntimeAdapterPreviewed | RuntimeAdapterBlocked | RuntimeAdapterDryRunCompleted | RuntimeAdapterMockCompleted | RuntimeAdapterExecutionFailed | RuntimeAdapterReceiptCreated,
+    TaskCreated | Routed | SkillInvoked | ArtifactCreated | ApprovalRequested | Approved | Rejected | ActionTaken | Failed | Responded | OutcomeRecorded | CorrectionRecorded | ModelUsed | CostRecorded | ModelLifecycleEvent | ConversationStarted | MessageReceived | WorkflowInvoked | MemoryProposed | MemoryApplied | MemoryRecalled | MemorySuperseded | MemoryDeleted | MemoryRolledBack | WorkspaceCreated | WorkspaceUpdated | ReadOnlyConnectorInvoked | PilotReportCreated | DraftActionCreated | GoalCreated | ProblemStatementGenerated | RoadmapCreated | TaskBoardCreated | TaskStatusUpdated | GoalProgressReported | WorkStepStarted | WorkStepCompleted | WorkStepBlocked | ClarificationRequested | ClarificationAnswered | EvidenceProvided | ProgressReportCreated | DeliverableTracked | AgentWorkforcePlanned | AgentAssignmentCreated | AgentAssignmentStarted | AgentAssignmentCompleted | AgentAssignmentBlocked | AgentAssignmentCancelled | AgentResultMerged | AgentSupervisionPlanned | AgentSupervisionStarted | AgentSupervisionCompleted | AgentSupervisionBlocked | AgentQualityCheckFailed | AgentEscalationRequired | AgentBudgetBlocked | AgentDependencyBlocked | SkillGapDetected | SkillProposalCreated | SkillSpecGenerated | SkillTestPlanGenerated | SkillEvaluated | SkillApprovalRequested | SkillActivated | SkillRejected | SkillDeprecated | SkillRolledBack | WorkMemoryNodeCreated | WorkMemoryNodeRedacted | WorkMemoryEdgeCreated | WorkLessonCreated | WorkLessonDisabled | WorkMemoryConsolidated | WorldSourceRegistered | WorldUpdateIngested | WorldUpdateScored | ImprovementProposalCreated | CollaborationContextCreated | CollaborationDraftCreated | CollaborationDraftUpdated | ApprovalRequestDrafted | HandoffNoteCreated | StakeholderQuestionCreated | RiskEscalationDrafted | RoutineDefined | RoutineEnabled | RoutineDisabled | RoutineDue | RoutineRunStarted | RoutineRunCompleted | RoutineRunFailed | RoutineRunMissed | RoutineOutputCreated | RoutineFollowupDrafted | ActionIntentCreated | ActionPreviewed | ActionBlocked | ActionApprovalRequested | ActionApproved | ActionRejected | ActionExecutionStarted | ActionExecuted | ActionExecutionFailed | ActionReceiptCreated | DashboardSnapshotCreated | RoiSummaryCreated | ApprovalQueueSummarized | RiskSummaryCreated | V3ProofDemoGenerated | V3AcceptancePackageCreated | RuntimeAdapterRegistered | RuntimeAdapterEnabled | RuntimeAdapterDisabled | RuntimeAdapterRequestCreated | RuntimeAdapterPreviewed | RuntimeAdapterBlocked | RuntimeAdapterDryRunCompleted | RuntimeAdapterMockCompleted | RuntimeAdapterExecutionFailed | RuntimeAdapterReceiptCreated | ModelProviderRegistered | ModelProviderStatusChanged | ModelRouteRequested | ModelRouteDecided | ModelRouteBlocked | ModelRouteFallbackApplied,
     Field(discriminator="event_type"),
 ]
 

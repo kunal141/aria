@@ -151,6 +151,12 @@ from aria.ledger.events import (
     RuntimeAdapterMockCompleted,
     RuntimeAdapterExecutionFailed,
     RuntimeAdapterReceiptCreated,
+    ModelProviderRegistered,
+    ModelProviderStatusChanged,
+    ModelRouteRequested,
+    ModelRouteDecided,
+    ModelRouteBlocked,
+    ModelRouteFallbackApplied,
 )
 from aria.ledger.exceptions import (
     LedgerPersistenceError,
@@ -300,6 +306,13 @@ __all__ = [
     "RuntimeAdapterMockCompleted",
     "RuntimeAdapterExecutionFailed",
     "RuntimeAdapterReceiptCreated",
+    # V4.2 — model router + sovereignty mock layer (decision-only) events
+    "ModelProviderRegistered",
+    "ModelProviderStatusChanged",
+    "ModelRouteRequested",
+    "ModelRouteDecided",
+    "ModelRouteBlocked",
+    "ModelRouteFallbackApplied",
     # Legacy adapters
     "LegacyTaskRecord",
     "LegacyEvolutionRecord",
