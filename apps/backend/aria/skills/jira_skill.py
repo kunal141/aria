@@ -20,15 +20,14 @@ Domain context: Amar Ujala engineering projects
   AU-DATA : Data Science / Analytics
   AU-OPS  : DevOps / Infrastructure
 """
-import json
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 import aria.config
 from aria.config import get_routed_llm, has_llm
+from aria.skills.json_output import parse_json_object
 from aria.tracing import traceable
-
 
 # ── Sub-models ────────────────────────────────────────────────────────────────
 
@@ -186,12 +185,13 @@ def run(input: JiraInput) -> JiraOutput:
             sprint_impact="Blocks the recommendation-service feature pipeline until the CI fix is merged.",
         )
 
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", _SYSTEM),
+            SystemMessage(content=_SYSTEM),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(
@@ -206,7 +206,7 @@ def run(input: JiraInput) -> JiraOutput:
     raw = chain.invoke({"raw_input": f"[Project: {input.project_key}]\n\n{input.raw_input}"})
 
     try:
-        data = json.loads(raw)
+        data = parse_json_object(raw)
         draft_data = data.get("ticket_draft", {})
         draft_data.setdefault("project_key", input.project_key)
         # Keyword check overrides LLM decision — explicit create intent always triggers T4
@@ -219,11 +219,12 @@ def run(input: JiraInput) -> JiraOutput:
             blocker_detected=data.get("blocker_detected", False),
             sprint_impact=data.get("sprint_impact", ""),
         )
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         return JiraOutput(
             ticket_draft=JiraTicketDraft(
                 title="Jira ticket draft — parse error",
-                description=f"ARIA parse error: {e}. Partial output: {raw[:200]}",
+                description=f"Model output invalid ({error_type}; details redacted).",
                 ticket_type="task",
                 priority="low",
                 acceptance_criteria=[],

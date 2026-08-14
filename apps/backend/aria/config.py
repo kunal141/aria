@@ -18,9 +18,10 @@ Four routing tiers (Week 16+):
   get_routed_llm()   → ModelRouter decides tier from task signals, returns right LLM
   get_llm()          → LLM_PROVIDER / LLM_MODEL             (general fallback)
 """
-import os
 import contextvars
+import os
 from contextlib import contextmanager
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -107,10 +108,20 @@ def get_llm(
     # ── Ollama (local — Llama, Gemma, Qwen, Mistral, etc.) ───────────────────
     if provider == "ollama":
         from langchain_ollama import ChatOllama
+
+        # ARIA does not consume or persist hidden thinking traces. Disable them
+        # for responsive local routing/extraction and bound generated output.
+        local_options = {
+            "base_url": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+            "reasoning": False,
+            "num_predict": 512,
+            "keep_alive": "30m",
+        }
+        local_options.update(kwargs)
         return ChatOllama(
             model=model or os.getenv("LLM_MODEL", "llama3.2"),
             temperature=temperature,
-            **kwargs,
+            **local_options,
         )
 
     # ── Groq (cloud, generous free tier — Llama 3.3, Gemma 2, Mixtral) ───────

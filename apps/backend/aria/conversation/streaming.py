@@ -81,12 +81,13 @@ def stream_turn(
     *,
     workspace_store: Any = None,
     actor: str = "human:local",
+    allow_llm: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Yield the ordered stream of typed events for one chat turn."""
     yield _event("message.started", {"session_id": session.session_id})
 
     try:
-        result = orchestrator.handle(text, session=session)
+        result = orchestrator.handle(text, session=session, allow_llm=allow_llm)
     except Exception as exc:  # never leak raw text / chain-of-thought
         yield _event("error", {"error_type": type(exc).__name__, "detail": "redacted"})
         return

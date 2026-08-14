@@ -1,35 +1,21 @@
-"""
-Connector Mode Contract (Week 34 §1).
+"""Fixture-first connector mode contract.
 
-Two modes, fixtures-first:
-
-  - ``fixtures``        deterministic local fixtures (the ONLY fully-implemented
-                        mode in Week 34). No network, ever. The default.
-  - ``read_only_live``  OPTIONAL scaffold only. It must FAIL CLOSED unless
-                        explicitly configured (explicit mode + provider
-                        allowlist) and even then performs no real network read in
-                        Week 34 (it raises ``NotImplementedError``).
-
-Hard rules:
-  - ``CONNECTOR_MODE=fixtures`` is the default; an unset/unknown value resolves to
-    ``fixtures`` (fail-safe).
-  - **Credentials alone NEVER activate live mode** — resolution looks only at
-    ``CONNECTOR_MODE``, never at the presence of API keys.
-  - ``read_only_live`` requires an explicit ``CONNECTOR_MODE=read_only_live`` AND
-    a provider on the ``CONNECTOR_PROVIDER_ALLOWLIST``; otherwise it raises
-    ``ConnectorModeError`` (fail closed).
-  - No write methods exist anywhere; no external writes in any mode.
+``fixtures`` is the deterministic, no-network default. ``read_only_live`` is an
+optional provider-specific mode and fails closed unless both the mode and the
+provider allowlist are configured explicitly. Credentials alone never activate
+live mode. Provider connectors must add their own credential, target, transport,
+and read-only policy enforcement.
 """
 from __future__ import annotations
 
 import os
-from enum import Enum
+from enum import StrEnum
 
 _MODE_ENV = "CONNECTOR_MODE"
 _ALLOWLIST_ENV = "CONNECTOR_PROVIDER_ALLOWLIST"
 
 
-class ConnectorMode(str, Enum):
+class ConnectorMode(StrEnum):
     fixtures = "fixtures"
     read_only_live = "read_only_live"
 
@@ -42,12 +28,7 @@ class ConnectorModeError(RuntimeError):
 
 
 def resolve_connector_mode() -> ConnectorMode:
-    """Resolve the active connector mode. Default + fail-safe is ``fixtures``.
-
-    Only an explicit, exact ``CONNECTOR_MODE=read_only_live`` selects live; any
-    other value (including unset, blank, or unknown) resolves to ``fixtures``.
-    Credentials are never consulted here.
-    """
+    """Resolve the mode, defaulting unknown and unset values to fixtures."""
     raw = (os.getenv(_MODE_ENV) or "").strip().lower()
     if raw == ConnectorMode.read_only_live.value:
         return ConnectorMode.read_only_live
@@ -64,14 +45,10 @@ def is_live_mode() -> bool:
 
 
 def ensure_live_allowed(provider: str) -> None:
-    """Fail closed unless live mode is explicitly + validly configured.
+    """Require explicit live mode and an explicitly allowlisted provider.
 
-    Raises ``ConnectorModeError`` when:
-      - the mode is not explicitly ``read_only_live``, or
-      - the provider is not on the allowlist.
-
-    NOTE: even when this passes, Week 34 performs no real network read — the live
-    connector raises ``NotImplementedError`` (scaffold only).
+    Passing this shared gate is necessary but not sufficient. A provider-specific
+    connector must still enforce its credential, target, and transport policy.
     """
     if resolve_connector_mode() is not ConnectorMode.read_only_live:
         raise ConnectorModeError(

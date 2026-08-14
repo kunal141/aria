@@ -1,0 +1,85 @@
+name: aria-private-staging
+
+services:
+  backend:
+    image: aria-private-backend:staging
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      ARIA_DATA_DIR: /data/aria
+      ARIA_LEDGER_V2_PATH: /data/aria/work_ledger_v2.jsonl
+      ARIA_EXECUTION_MODE: offline_mock
+      ARIA_CONNECTOR_MODE: fixtures
+      CONNECTOR_MODE: ${CONNECTOR_MODE:-fixtures}
+      CONNECTOR_PROVIDER_ALLOWLIST: ${CONNECTOR_PROVIDER_ALLOWLIST:-}
+      JIRA_HOST_ALLOWLIST: ${JIRA_HOST_ALLOWLIST:-}
+      ARIA_CREDENTIAL_MASTER_KEY: ${ARIA_CREDENTIAL_MASTER_KEY:-}
+      ARIA_LIVE_EXECUTION: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - aria-private-data:/data/aria
+    networks:
+      - aria-private
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3); assert r.status == 200 and json.load(r)['status'] == 'ready'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+
+  frontend:
+    image: aria-private-frontend:staging
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - aria-private
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m,uid=101,gid=101
+      - /var/run:size=4m,uid=101,gid=101
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/frontend-health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+
+networks:
+  aria-private:
+    internal: true
+
+volumes:
+  aria-private-data:
+    name: aria-private-staging-data

@@ -243,7 +243,8 @@ def build_v4_app():
                                "definitions + deny-by-default gate + internal_mock execution "
                                "(preview/dry-run/mock) + future stubs (hard-blocked) + model "
                                "router/sovereignty contracts + evaluation hooks. Localhost pilot, "
-                               "MOCK/LOCAL only: no real external runtime, model API, network, SDK, "
+                               "MOCK/LOCAL only: no real external runtime, model API, network, "
+                               "SDK, "
                                "subprocess, credential, live execution, or deployment."))
     app.add_middleware(
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -255,4 +256,6 @@ def build_v4_app():
     app.include_router(v4_routing_router)
     from aria.api.v4_employee import v4_employee_router
     app.include_router(v4_employee_router)
+    from aria.api.staging_health import staging_health_router
+    app.include_router(staging_health_router)
     return app

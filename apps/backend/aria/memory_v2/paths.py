@@ -151,6 +151,23 @@ def employee_runs_db_path() -> Path:
     return aria_data_dir() / "employee_runs" / "store.sqlite"
 
 
+def identity_db_path() -> Path:
+    """Confined SQLite authority for tenants, principals, and memberships."""
+    return aria_data_dir() / "identity" / "store.sqlite"
+
+
+def tenant_data_dir(tenant_id: str) -> Path:
+    """Return a confined per-tenant data root for future tenant-aware stores.
+
+    Legacy stores do not use this helper yet and therefore are not represented as
+    tenant-safe. New production surfaces must use this root explicitly.
+    """
+    from aria.identity.models import validate_structural_id
+
+    safe_id = validate_structural_id(tenant_id, field_name="tenant_id")
+    return ensure_confined(aria_data_dir() / "tenants" / safe_id)
+
+
 def workspaces_dir() -> Path:
     """Confined root for persistent workspaces (``${ARIA_DATA_DIR}/workspaces``)."""
     return aria_data_dir() / "workspaces"

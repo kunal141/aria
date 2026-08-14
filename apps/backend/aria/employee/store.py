@@ -623,9 +623,10 @@ class EmployeeRunStore:
         prefix = f"{workspace_id}/"
         if not artifact_ref.startswith(prefix):
             raise EmployeeRunIntegrityError("artifact is not bound to the run workspace")
-        from aria.memory_v2.paths import workspace_artifact_dir
-        name = artifact_ref[len(prefix):]
-        path = ensure_confined(workspace_artifact_dir(workspace_id) / name)
+        try:
+            path = self._workspace_store.resolve_artifact_ref(workspace_id, artifact_ref)
+        except ValueError as exc:
+            raise EmployeeRunIntegrityError("artifact reference is not confined") from exc
         if not path.is_file():
             raise EmployeeRunIntegrityError("employee artifact is not persisted")
         return path

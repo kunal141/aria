@@ -16,15 +16,14 @@ Domain context: Amar Ujala engineering pipelines
   - analytics-pipeline      : CTR event processing, deduplication
   - feed-ranking-service    : personalised feed generation
 """
-import json
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 import aria.config
 from aria.config import get_routed_llm, has_llm
+from aria.skills.json_output import parse_json_object
 from aria.tracing import traceable
-
 
 # ── Input Schema ──────────────────────────────────────────────────────────────
 
@@ -154,8 +153,9 @@ def run(input: CICDInput) -> CICDOutput:
             severity="high",
         )
 
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
 
     human_msg = input.raw_input
     if input.pipeline_name:
@@ -165,7 +165,7 @@ def run(input: CICDInput) -> CICDOutput:
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", _SYSTEM),
+            SystemMessage(content=_SYSTEM),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(task_type="ci_cd", data_sensitivity=input.data_sensitivity, audience=input.audience, temperature=0)
@@ -175,14 +175,15 @@ def run(input: CICDInput) -> CICDOutput:
     raw = chain.invoke({"raw_input": human_msg})
 
     try:
-        data = json.loads(raw)
+        data = parse_json_object(raw)
         return CICDOutput(**data)
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         return CICDOutput(
-            failure_summary=f"Parse error: {e}",
+            failure_summary=f"Model output invalid ({error_type}; details redacted).",
             stage_failed="unknown",
             root_causes=[],
-            suggested_fixes=[f"Could not parse analysis: {str(e)[:100]}"],
+            suggested_fixes=["Retry with a valid structured analysis."],
             estimated_fix_time="unknown",
             deployment_safe=False,
             notify_team=False,

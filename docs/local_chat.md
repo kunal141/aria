@@ -8,7 +8,24 @@ terminal, instead of editing the hard-coded inputs in `apps/backend/main.py`.
 ```bash
 cd apps/backend
 uv run python -m aria.chat            # offline keyword brain (default)
-uv run python -m aria.chat --llm      # opt in to the live LLM brain (paid)
+uv run python -m aria.chat --llm      # opt in to the configured LLM brain
+```
+
+For the installed private local employee, run from the repository root:
+
+```powershell
+.\scripts\start_local_employee.ps1 -Mode chat
+.\scripts\start_local_employee.ps1 -Mode web
+```
+
+Both commands use `gemma4:latest` through loopback Ollama by default, require no
+API key, disable dotenv/cloud tracing, keep live execution disabled, and persist
+state under `.aria_data/local-employee`. The web mode opens
+`http://127.0.0.1:5173` and stops both local services when its terminal exits.
+You can also stop a background web employee explicitly:
+
+```powershell
+.\scripts\stop_local_employee.ps1
 ```
 
 You'll see:
@@ -38,16 +55,18 @@ Each is classified by the existing router and dispatched to the matching skill
 `general`). The reply shows the routed skill in brackets followed by ARIA's
 response.
 
-## Offline vs paid LLM mode
+## Execution modes
 
 | Mode | When | Behaviour |
 |---|---|---|
 | **Offline (default)** | no `--llm` flag (provider key may even be present) | Keyword router + deterministic mock skill outputs. **No paid API call, no network.** |
-| **LLM (opt-in)** | `--llm` flag **and** a provider + key configured in `.env` | Same graph, but the router and skills use the live model. **Makes paid API calls.** |
+| **Local LLM (recommended)** | local launcher or `LLM_PROVIDER=ollama` plus `--llm` | Same governed graph using local Ollama. No API key or paid/cloud call. |
+| **Cloud LLM (explicit only)** | `cloud_opt_in`, `--llm`, provider, and key deliberately configured | Same graph using the selected paid provider. Not used by the local launcher. |
 
 Local chat is **offline-by-default**: even if `LLM_PROVIDER` + an API key are set
 in `apps/backend/.env`, the live brain stays off unless you pass `--llm`. The
-flag is the only thing that enables paid calls.
+flag is the only thing that enables inference on this terminal surface. The
+selected execution mode determines whether that inference is local or cloud.
 
 To use the live brain, configure a provider in `apps/backend/.env` and pass `--llm`:
 

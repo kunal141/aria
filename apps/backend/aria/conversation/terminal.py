@@ -57,8 +57,15 @@ def session_repl(read=input, write=print, *, mode=None, scope: str = "analytics.
     workspace_store = WorkspaceStore(execution_mode=resolved.value)
     pilot_service = PilotService(store, workspace_store, execution_mode=resolved.value)
     orch = ConversationOrchestrator(
-        store, execution_mode=resolved.value, pilot_service=pilot_service,
+        store,
+        execution_mode=resolved.value,
+        pilot_service=pilot_service,
+        workspace_store=workspace_store,
     )
+    allow_llm = resolved in {
+        ExecutionMode.local_ollama,
+        ExecutionMode.cloud_opt_in,
+    }
     session = orch.start_session(owner=owner, scope=scope)
 
     write("ARIA Conversation (Week 32) — multi-turn, memory-aware")
@@ -92,7 +99,7 @@ def session_repl(read=input, write=print, *, mode=None, scope: str = "analytics.
             if handled is not None:
                 write(f"\nARIA:\n{handled}\n")
                 continue
-            result = orch.handle(text, session=session)
+            result = orch.handle(text, session=session, allow_llm=allow_llm)
             write(f"\nARIA [{result.decision.action.value}]:\n{result.response}\n")
         except Exception as exc:  # never leak raw exception text (may carry secrets)
             write(

@@ -68,7 +68,12 @@ def _build_components():
     store = DomainMemoryStore(execution_mode=mode)
     workspace_store = WorkspaceStore(execution_mode=mode)
     pilot_service = PilotService(store, workspace_store, execution_mode=mode)
-    orchestrator = ConversationOrchestrator(store, execution_mode=mode, pilot_service=pilot_service)
+    orchestrator = ConversationOrchestrator(
+        store,
+        execution_mode=mode,
+        pilot_service=pilot_service,
+        workspace_store=workspace_store,
+    )
     approval = ApprovalService(orchestrator)
     return store, workspace_store, orchestrator, approval
 
@@ -155,8 +160,11 @@ def post_message(session_id: str, body: MessageRequest):
                 yield json.dumps({"event": "error",
                                   "data": {"error_type": "SessionMissing", "detail": "redacted"}}) + "\n"
                 return
-            for ev in stream_turn(orch, session, body.message,
-                                  workspace_store=workspace_store, actor=actor()):
+            allow_local_llm = resolve_execution_mode().value == "local_ollama"
+            for ev in stream_turn(
+                orch, session, body.message, workspace_store=workspace_store,
+                actor=actor(), allow_llm=allow_local_llm,
+            ):
                 yield json.dumps(ev) + "\n"
         except Exception as exc:  # never leak raw text — class only, in body AND logs
             _log.error("v2 stream error (class only): %s", type(exc).__name__)

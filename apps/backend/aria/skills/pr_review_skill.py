@@ -11,15 +11,14 @@ Domain context: Amar Ujala media-tech
 Relevant systems: CMS pipelines, recommendation engine,
                   notification service, personalisation, analytics
 """
-import json
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 import aria.config  # must be first
 from aria.config import get_routed_llm, has_llm
+from aria.skills.json_output import parse_json_object
 from aria.tracing import traceable
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Input Schema
@@ -167,8 +166,9 @@ def run(input: PRReviewInput) -> PRReviewOutput:
             component_version=comp_version,
         )
 
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
 
     human_msg = input.raw_input
     if input.pr_title:
@@ -178,7 +178,7 @@ def run(input: PRReviewInput) -> PRReviewOutput:
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
+            SystemMessage(content=system_prompt),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(task_type="pr_review", data_sensitivity=input.data_sensitivity, audience=input.audience, temperature=0)
@@ -188,13 +188,14 @@ def run(input: PRReviewInput) -> PRReviewOutput:
     raw = chain.invoke({"raw_input": human_msg})
 
     try:
-        data = json.loads(raw)
+        data = parse_json_object(raw)
         return PRReviewOutput(**data, component_hash=comp_hash, component_version=comp_version)
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         return PRReviewOutput(
             verdict="needs_discussion",
             risk_level="medium",
-            summary=f"Parse error: {e}. Raw: {raw[:200]}",
+            summary=f"Model output invalid ({error_type}; details redacted).",
             code_issues=[],
             missing_tests=[],
             deployment_risks=[],

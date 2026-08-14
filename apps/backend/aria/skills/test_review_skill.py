@@ -17,15 +17,14 @@ Domain: Amar Ujala engineering systems
   - CMS ingestion tests (parsing, enrichment, deduplication)
   - Analytics tests (CTR computation, event deduplication)
 """
-import json
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 import aria.config
 from aria.config import get_routed_llm, has_llm
+from aria.skills.json_output import parse_json_object
 from aria.tracing import traceable
-
 
 # ── Input Schema ──────────────────────────────────────────────────────────────
 
@@ -179,8 +178,9 @@ def run(input: TestReviewInput) -> TestReviewOutput:
             ],
         )
 
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
 
     human_msg = input.raw_input
     if input.service_name:
@@ -190,7 +190,7 @@ def run(input: TestReviewInput) -> TestReviewOutput:
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", _SYSTEM),
+            SystemMessage(content=_SYSTEM),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(task_type="test_review", data_sensitivity=input.data_sensitivity, audience=input.audience, temperature=0)
@@ -200,16 +200,17 @@ def run(input: TestReviewInput) -> TestReviewOutput:
     raw = chain.invoke({"raw_input": human_msg})
 
     try:
-        data = json.loads(raw)
+        data = parse_json_object(raw)
         return TestReviewOutput(**data)
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         return TestReviewOutput(
-            summary=f"Parse error: {e}",
+            summary=f"Model output invalid ({error_type}; details redacted).",
             quality_score=0.0,
             issues=[],
             regression_risks=[],
             coverage_verdict="poor",
-            recommendations=[f"Could not parse review: {str(e)[:100]}"],
+            recommendations=["Retry with a valid structured review."],
         )
 
 

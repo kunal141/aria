@@ -3,7 +3,8 @@ Persistent Task / Session Workspace (Week 33 §5).
 
 A workspace is the durable record of a serious session: its metadata lives in
 SQLite (the authoritative record) and any artifact *bytes* live in a confined
-runtime directory ``${ARIA_DATA_DIR}/workspaces/<workspace_id>/``. Same discipline
+runtime directory below the store's confined artifact root (by default
+``${ARIA_DATA_DIR}/workspaces/<workspace_id>/``). Same discipline
 as the domain-memory store: gitignored, path-confined, lazy (no import-time
 creation), restart-safe, test-isolated, and audited through a **transactional
 outbox** so workspace state and its Work Ledger audit can never diverge.
@@ -30,8 +31,8 @@ from aria.ledger import ActorType, LedgerEventType
 from aria.memory_v2.audit import build_memory_event
 from aria.memory_v2.paths import (
     ensure_confined,
-    workspace_artifact_dir,
     workspaces_db_path,
+    workspaces_dir,
 )
 
 _SCHEMA = """
@@ -132,9 +133,13 @@ class WorkspaceStore:
         *,
         writer: Any = None,
         execution_mode: str | None = None,
+        artifact_root: Path | str | None = None,
     ) -> None:
         resolved = Path(db_path) if db_path is not None else workspaces_db_path()
         self._db_path = ensure_confined(resolved)
+        self._artifact_root = ensure_confined(
+            Path(artifact_root) if artifact_root is not None else workspaces_dir()
+        )
         self._writer = writer
         self._execution_mode = execution_mode
         self._conn: sqlite3.Connection | None = None
@@ -160,6 +165,10 @@ class WorkspaceStore:
     @property
     def db_path(self) -> Path:
         return self._db_path
+
+    @property
+    def artifact_root(self) -> Path:
+        return self._artifact_root
 
     # ── Transactional audit outbox (same discipline as the memory store) ─────
 
@@ -329,13 +338,34 @@ class WorkspaceStore:
         """Write artifact bytes into the confined workspace dir; return the safe
         relative reference (never an absolute path)."""
         safe_name = _safe_artifact_name(name)
-        ws_dir = workspace_artifact_dir(workspace_id)
-        ensure_confined(ws_dir)  # path-confinement guard
+        ws_dir = self._artifact_path(workspace_id)
         ws_dir.mkdir(parents=True, exist_ok=True)
         (ws_dir / safe_name).write_text(content, encoding="utf-8")
         return f"{workspace_id}/{safe_name}"   # relative reference only — no raw path
 
     # ── Row → model ──────────────────────────────────────────────────────────
+
+    def resolve_artifact_ref(self, workspace_id: str, artifact_ref: str) -> Path:
+        """Resolve an artifact reference through this store's confined root."""
+        prefix = f"{workspace_id}/"
+        if not artifact_ref.startswith(prefix):
+            raise ValueError("artifact is not bound to the workspace")
+        name = artifact_ref[len(prefix):]
+        if not name or Path(name).name != name:
+            raise ValueError("artifact reference is not a confined filename")
+        return self._artifact_path(workspace_id, name)
+
+    def _artifact_path(self, workspace_id: str, name: str | None = None) -> Path:
+        path = ensure_confined(
+            self._artifact_root / workspace_id / name
+            if name is not None
+            else self._artifact_root / workspace_id
+        )
+        try:
+            path.resolve().relative_to(self._artifact_root.resolve())
+        except ValueError as exc:
+            raise ValueError("artifact path escapes the workspace authority root") from exc
+        return path
 
     @staticmethod
     def _row_to_workspace(row: sqlite3.Row) -> Workspace:

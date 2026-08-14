@@ -11,13 +11,13 @@ Domain context: Amar Ujala media platform
 Relevant KPIs: CTR, feed performance, notification CTR,
                story recommendation quality, content pipeline health
 """
-import json
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 import aria.config  # must be first
 from aria.config import get_routed_llm, has_llm
+from aria.skills.json_output import parse_json_object
 from aria.tracing import traceable
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,12 +119,13 @@ def run(input: KPIInput) -> KPIOutput:
             confidence_score=0.0,
         )
 
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", _SYSTEM),
+            SystemMessage(content=_SYSTEM),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(task_type="kpi", data_sensitivity=input.data_sensitivity, audience=input.audience, temperature=0)
@@ -134,11 +135,12 @@ def run(input: KPIInput) -> KPIOutput:
     raw = chain.invoke({"raw_input": input.raw_input})
 
     try:
-        data = json.loads(raw)
+        data = parse_json_object(raw)
         return KPIOutput(**data)
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         return KPIOutput(
-            summary=f"Parse error: {e}. Raw: {raw[:200]}",
+            summary=f"Model output invalid ({error_type}; details redacted).",
             root_causes=[],
             recommended_actions=[],
             data_needed=[],

@@ -6,6 +6,16 @@ network; ``read_only_live`` is an optional fail-closed scaffold. No write method
 exist in any mode.
 """
 from aria.connectors.connector import FixtureConnector, LiveConnector, get_connector
+from aria.connectors.jira import (
+    FixtureJiraConnector,
+    JiraConfigurationError,
+    JiraConnectorError,
+    JiraIssue,
+    JiraResponseError,
+    LiveReadOnlyJiraConnector,
+    TenantJiraReadService,
+    build_jira_connector,
+)
 from aria.connectors.mode import (
     ConnectorMode,
     ConnectorModeError,
@@ -25,4 +35,12 @@ __all__ = [
     "FixtureConnector",
     "LiveConnector",
     "get_connector",
+    "FixtureJiraConnector",
+    "JiraConfigurationError",
+    "JiraConnectorError",
+    "JiraIssue",
+    "JiraResponseError",
+    "LiveReadOnlyJiraConnector",
+    "TenantJiraReadService",
+    "build_jira_connector",
 ]

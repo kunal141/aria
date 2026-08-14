@@ -60,6 +60,31 @@ CICD_FIXTURES: dict[str, dict] = {
     },
 }
 
+# --- Jira read-only fixtures -------------------------------------------------
+
+JIRA_ISSUES: dict[str, dict] = {
+    "ARIA-101": {
+        "key": "ARIA-101",
+        "summary": "Investigate notification CTR decline",
+        "status": "In Progress",
+        "assignee": "Kunal Mahajan",
+        "project": "ARIA",
+        "issue_type": "Task",
+        "priority": "High",
+        "updated": "2026-08-04T06:00:00+00:00",
+    },
+    "ARIA-102": {
+        "key": "ARIA-102",
+        "summary": "Review recommendation ranking CI failure",
+        "status": "Blocked",
+        "assignee": "Kunal Mahajan",
+        "project": "ARIA",
+        "issue_type": "Bug",
+        "priority": "Medium",
+        "updated": "2026-08-04T05:30:00+00:00",
+    },
+}
+
 # ── Analytics / events fixtures (pairs with the story_events.event_type memory) ─
 
 ANALYTICS_SCHEMA: dict[str, dict] = {

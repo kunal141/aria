@@ -17,15 +17,14 @@ Domain context: Amar Ujala engineering systems
   - Notification service (push, in-app, rate limiting, opt-out)
   - Analytics pipeline (event tracking, CTR computation, A/B test assignment)
 """
-import json
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 import aria.config
 from aria.config import get_routed_llm, has_llm
+from aria.skills.json_output import parse_json_object
 from aria.tracing import traceable
-
 
 # ── Input Schema ──────────────────────────────────────────────────────────────
 
@@ -159,8 +158,9 @@ def run(input: QAInput) -> QAOutput:
             test_count={"functional": 1, "edge": 1, "negative": 1, "integration": 0, "performance": 0},
         )
 
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
 
     human_msg = input.raw_input
     if input.feature_name:
@@ -170,7 +170,7 @@ def run(input: QAInput) -> QAOutput:
 
     chain = (
         ChatPromptTemplate.from_messages([
-            ("system", _SYSTEM),
+            SystemMessage(content=_SYSTEM),
             ("human", "{raw_input}"),
         ])
         | get_routed_llm(task_type="qa", data_sensitivity=input.data_sensitivity, audience=input.audience, temperature=0)
@@ -180,7 +180,7 @@ def run(input: QAInput) -> QAOutput:
     raw = chain.invoke({"raw_input": human_msg})
 
     try:
-        data = json.loads(raw)
+        data = parse_json_object(raw)
         # Compute test_count from actual test_cases if not provided
         if not data.get("test_count"):
             counts: dict = {}
@@ -189,9 +189,10 @@ def run(input: QAInput) -> QAOutput:
                 counts[t] = counts.get(t, 0) + 1
             data["test_count"] = counts
         return QAOutput(**data)
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         return QAOutput(
-            feature_summary=f"Parse error: {e}. Raw: {raw[:200]}",
+            feature_summary=f"Model output invalid ({error_type}; details redacted).",
             test_cases=[],
             coverage_gaps=[],
             test_count={},

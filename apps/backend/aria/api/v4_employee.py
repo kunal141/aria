@@ -191,3 +191,41 @@ def inspect_employee_run(run_id: str):
         return _error(500, "internal_error", "The employee run could not be inspected.")
     finally:
         _close(*stores)
+
+
+@v4_employee_router.get("/{run_id}/ledger")
+def inspect_employee_run_ledger(run_id: str):
+    """Return a sanitized audit timeline for one run and its owning goal."""
+    try:
+        service, stores = _build_employee()
+    except EmployeeModeBlocked:
+        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+    try:
+        view = service.inspect_run(run_id)
+        from aria.ledger import LedgerReader
+        from aria.ledger.writer import get_default_writer
+
+        events = LedgerReader(v2_path=get_default_writer().path).v2_events()
+        correlations = {view.run.run_id, view.run.goal_id}
+        timeline = []
+        for event in events:
+            if event.correlation_id not in correlations:
+                continue
+            payload = event.model_dump(mode="json")
+            timeline.append({
+                key: payload.get(key)
+                for key in (
+                    "event_id", "event_type", "task_id", "correlation_id",
+                    "actor_type", "outcome", "timestamp",
+                )
+                if payload.get(key) is not None
+            })
+        return {"run_id": run_id, "goal_id": view.run.goal_id,
+                "events": timeline, "count": len(timeline)}
+    except EmployeeRunNotFound:
+        return _error(404, "employee_run_not_found", "Unknown employee run.")
+    except Exception as exc:
+        _log.error("v4 employee ledger inspection failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "The employee ledger could not be inspected.")
+    finally:
+        _close(*stores)

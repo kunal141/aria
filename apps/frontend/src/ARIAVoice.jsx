@@ -12,7 +12,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-const VOICE_API = 'http://localhost:8001/voice/run';
+const VOICE_API = '/voice/run';
 
 // ── Task-type display helpers ─────────────────────────────────────────────────
 const TYPE_LABELS = {

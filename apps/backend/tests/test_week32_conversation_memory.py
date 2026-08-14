@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -442,6 +443,39 @@ def test_no_raw_exception_text_in_terminal(monkeypatch):
     assert "TOP_SECRET_TOKEN" not in joined
     assert "RuntimeError" in joined
     assert "details redacted" in joined
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_allow_llm"),
+    [
+        ("offline_mock", False),
+        ("local_ollama", True),
+        ("cloud_opt_in", True),
+    ],
+)
+def test_terminal_forwards_explicit_execution_mode_to_llm_gate(
+    monkeypatch, mode, expected_allow_llm,
+):
+    """The terminal's active-brain banner and orchestrator call must agree."""
+    from aria.conversation import terminal
+
+    seen: list[bool] = []
+
+    def fake_handle(self, text, *, session, allow_llm=False):
+        seen.append(allow_llm)
+        return SimpleNamespace(
+            decision=SimpleNamespace(action=SimpleNamespace(value="converse")),
+            response="stubbed response",
+        )
+
+    monkeypatch.setattr(ConversationOrchestrator, "handle", fake_handle)
+    lines = iter(["hello", "exit"])
+
+    def read(_prompt=""):
+        return next(lines)
+
+    terminal.session_repl(read=read, write=lambda _line: None, mode=mode)
+    assert seen == [expected_allow_llm]
 
 
 def test_ledger_metadata_redacts_secrets():

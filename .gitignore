@@ -56,6 +56,17 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 
+# Local non-source artifacts
+ChatGPT Installer.exe
+Microsoft.Services.Store.winmd
+Kunal Mahajan_10 Years_AI Technical Engineer.pdf
+AI_Roadmap_Jul-Dec_2026.xlsx
+ARIA_V3_Governed_AI_Employee_Workforce_Professional.pptx
+categories_topics_export*.csv
+family-pantry-static.zip
+youtube_black_player.html
+youtube_iframe_player.html
+
 # LangSmith / LangChain cache
 .langchain.db
 langchain_cache/
