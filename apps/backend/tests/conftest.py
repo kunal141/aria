@@ -20,6 +20,18 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _backend_pythonpath_for_subprocesses(monkeypatch: pytest.MonkeyPatch):
+    """Let child Python interpreters import ``aria`` when pytest runs at repo root."""
+    backend_root = Path(__file__).resolve().parents[1]
+    current = os.environ.get("PYTHONPATH")
+    paths = [str(backend_root)]
+    if current:
+        paths.append(current)
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(paths))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolate_ledger_v2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     Point the v2 ledger singleton at a temp file for the duration of each

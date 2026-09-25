@@ -783,8 +783,8 @@ def _execute_jira_after_approval(task_id: str) -> Optional[dict]:
 
         def _mock_create(_draft=None):
             return {
-                "ticket_id": "AU-ENG-MOCK",
-                "url":       "https://jira.amar-ujala.internal/browse/AU-ENG-MOCK",
+                "ticket_id": "ENG-MOCK",
+                "url":       "https://jira.example.internal/browse/ENG-MOCK",
                 "status":    "created (mock — real Jira API integration arrives in V2)",
             }
 
@@ -1066,7 +1066,7 @@ class ARIAActivityHandler(ActivityHandler):
 
             if jira_attempted:
                 if jira_created:
-                    ticket_id  = jira_created.get("ticket_id", "AU-ENG-???")
+                    ticket_id  = jira_created.get("ticket_id", "ENG-???")
                     ticket_url = jira_created.get("url", "")
                     await turn_context.send_activity(
                         MessageFactory.text(

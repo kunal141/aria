@@ -88,11 +88,10 @@ PR_REVIEW_RUBRIC = Rubric(
             weight=1.0,
         ),
         RubricDimension(
-            name="media_tech_domain_awareness",
+            name="domain_awareness",
             description=(
-                "Business impact connects the code change to a concrete Amar Ujala metric: "
-                "CTR, feed quality, notification open rate, recommendation diversity, etc. "
-                "Generic 'could affect users' scores 1."
+                "Business impact connects the code change to a concrete metric declared "
+                "in the tenant's operating context. Generic 'could affect users' scores 1."
             ),
             weight=1.0,
         ),

@@ -119,6 +119,7 @@ class EmployeeRun(BaseModel):
 
     run_id: str
     correlation_id: str
+    employee_id: str = "emp-unassigned"
     goal_id: str
     workspace_id: str
     goal_text: str
@@ -133,6 +134,8 @@ class EmployeeRun(BaseModel):
     selected_adapter_id: str | None = None
     final_attempt_id: str | None = None
     manager_report_ref: str | None = None
+    proof_packet_ref: str | None = None
+    proof_packet: dict[str, Any] | None = None
     approval_task_id: str | None = None
     roi_minutes_saved: int = Field(default=0, ge=0)
     roi_method: str = "not calculated"
@@ -155,6 +158,8 @@ class ManagerRunView(BaseModel):
     clarifications: list[dict[str, Any]] = Field(default_factory=list)
     tasks: list[dict[str, Any]] = Field(default_factory=list)
     workers: list[dict[str, Any]] = Field(default_factory=list)
+    employee: dict[str, Any] = Field(default_factory=dict)
+    employment_record: dict[str, Any] = Field(default_factory=dict)
     supervision_runs: list[dict[str, Any]] = Field(default_factory=list)
     route_decision: dict[str, Any] = Field(default_factory=dict)
     adapter_requests: list[dict[str, Any]] = Field(default_factory=list)
@@ -169,6 +174,7 @@ class ManagerRunView(BaseModel):
     roi_method: str = "conservative deterministic estimate; not production ROI"
     evidence_refs: list[str] = Field(default_factory=list)
     receipt_refs: list[str] = Field(default_factory=list)
+    work_proof_packet: dict[str, Any] = Field(default_factory=dict)
     boundary_note: str = (
         "Offline deterministic proof only. No network, provider call, external write, "
         "automatic approval, deployment, or uncontrolled self-modification."

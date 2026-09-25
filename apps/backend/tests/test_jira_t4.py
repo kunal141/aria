@@ -143,7 +143,8 @@ def test_jira_node_t4_approved_executes_via_harness():
     # skill_output should contain the created ticket info
     payload = json.loads(result["skill_output"])
     assert "created_ticket_id" in payload
-    assert payload["created_ticket_id"] == "AU-ENG-MOCK"
+    # Employer-neutral mock id (M4); tenant keys arrive via TenantOrgProfile.
+    assert payload["created_ticket_id"] == "ENG-MOCK"
 
 
 def test_jira_node_t4_approved_dry_run_does_not_annotate():

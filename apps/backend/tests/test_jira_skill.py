@@ -24,7 +24,8 @@ from aria.skills.jira_skill import (
 
 def test_jira_input_defaults():
     inp = JiraInput(raw_input="Fix broken test", task_id="t-001")
-    assert inp.project_key == "AU-ENG"
+    # Employer-neutral default (M4). Tenant-specific keys arrive via TenantOrgProfile.
+    assert inp.project_key == "ENG"
     assert inp.read_only is True
     assert inp.data_sensitivity == "internal"
     assert inp.audience == "developer"

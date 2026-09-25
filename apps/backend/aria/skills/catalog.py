@@ -42,7 +42,7 @@ _CATALOG: tuple[dict, ...] = (
         "action_tier": 2,
         "input_schema": "KPIInput",
         "output_schema": "KPIOutput",
-        "description": ("Investigates a KPI anomaly (CTR drop, feed / notification performance) "
+        "description": ("Investigates a KPI anomaly in a metric declared by the tenant "
                         "and proposes ranked root-cause hypotheses with evidence."),
     },
     {

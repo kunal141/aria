@@ -44,6 +44,10 @@ $env:OLLAMA_HOST = "http://127.0.0.1:11434"
 $env:CONNECTOR_MODE = "fixtures"
 $env:ARIA_CONNECTOR_MODE = "fixtures"
 $env:ARIA_LIVE_EXECUTION = "false"
+# The local console's chat/voice views call the legacy /api/v2 + /voice routers,
+# which are unauthenticated and therefore fail-closed by default. Safe here only
+# because this launcher binds strictly to 127.0.0.1.
+$env:ARIA_STAGING_LEGACY_API = "true"
 
 if (-not $SkipFitness) {
     Push-Location $Backend

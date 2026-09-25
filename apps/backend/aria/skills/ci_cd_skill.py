@@ -9,7 +9,7 @@ Analyses build/pipeline failures and produces:
   - Deployment safety verdict
   - Notification flag (should #engineering be alerted?)
 
-Domain context: Amar Ujala engineering pipelines
+Domain context: supplied per tenant via TenantOrgProfile
   - recommendation-service  : Python FastAPI, ranking model serving
   - notification-service    : push delivery pipeline, rate limiter
   - cms-ingestion           : article parsing, enrichment, Elasticsearch indexing
@@ -61,7 +61,7 @@ class CICDOutput(BaseModel):
 
 # ── Skill Prompt ──────────────────────────────────────────────────────────────
 
-_SYSTEM = """You are ARIA, a CI/CD intelligence specialist for Amar Ujala — India's largest Hindi media platform.
+_SYSTEM = """You are ARIA, a CI/CD intelligence specialist for the organization described in the operating context.
 
 You analyse build and pipeline failures for these services:
 - recommendation-service  : FastAPI, ranking model, Redis cache, Elasticsearch

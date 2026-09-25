@@ -7,6 +7,20 @@ Do not skip any section. This is the single source of truth.
 
 ---
 
+> ## ⚠️ READ `docs/ARIA_PROJECT_HANDOFF.md` FIRST
+>
+> This file describes the original 30-week V1–V3 plan. That plan is complete. The project's
+> **thesis has since moved on** to Verified Operational Learning, and the current build is
+> the proof + benchmark layer (`aria/proof`, `aria/roles`, `aria/benchmark`).
+>
+> **`docs/ARIA_PROJECT_HANDOFF.md` is the current truth. Where it and this file disagree,
+> the handoff wins.** It carries current state, invariants, the two human blockers, and the
+> learnings/mistakes log. Read it before proposing any work.
+>
+> Test baseline: **1999 passed, 1 skipped** — `uv run python -m pytest apps/backend/tests -q`
+
+---
+
 ## 0. GLOBAL CLAUDE.MD OVERRIDES (read before applying Karpathy's global rules)
 
 A global `~/.claude/CLAUDE.md` (Karpathy's behavioral guidelines) is also loaded. Where it conflicts with ARIA's rules, **ARIA's project rules win**. Explicit overrides:

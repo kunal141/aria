@@ -168,11 +168,11 @@ class AnalyticsQACrew:
             analytics_agent = Agent(
                 role="Analytics Specialist",
                 goal=(
-                    "Investigate KPI anomalies for Amar Ujala's media platform. "
+                    "Investigate KPI anomalies for the organization in the operating context. "
                     "Identify root causes with evidence and recommend concrete actions."
                 ),
                 backstory=(
-                    "You are an expert data analyst with deep knowledge of Amar Ujala's "
+                    "You are an expert data analyst with deep knowledge of the organization's "
                     "media metrics: CTR, feed engagement, notification delivery rates, "
                     "recommendation quality scores, and content pipeline throughput. "
                     "You have 5 years of experience diagnosing production incidents."
@@ -203,7 +203,7 @@ class AnalyticsQACrew:
             # Task 1: investigate the anomaly
             investigate_task = Task(
                 description=(
-                    f"Investigate this KPI anomaly for Amar Ujala: {anomaly}\n\n"
+                    f"Investigate this KPI anomaly: {anomaly}\n\n"
                     "Use the KPI Investigation Tool to get structured root cause analysis. "
                     "Summarise the top 3 root causes and the top 3 recommended actions."
                 ),

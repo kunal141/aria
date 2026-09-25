@@ -1,42 +1,52 @@
-# PR Review Guidelines — Amar Ujala Engineering
+# PR Review Guidelines — Reference Pack
 
-## High-Risk Changes (always block for review)
-- Any change to recommendation ranking weights or scoring formula
-- Changes to content ingestion pipeline (article parser, enrichment, indexer)
-- Notification send logic — frequency limits, targeting rules, content filters
-- Database schema migrations on tables with >1M rows
-- A/B experiment assignment logic — incorrect assignment = invalid experiment results
-- Authentication or session management changes
-- Changes to analytics event tracking (CTR, engagement events must be consistent)
+Neutral reference content for the knowledge base. It illustrates the *shape* of review
+guidelines an organization would supply; it is not any organization's real policy.
+Tenants replace it with their own via a vertical runbook pack, and the services named
+in `TenantOrgProfile` take precedence over anything here.
 
-## Required Before Any Merge
-- [ ] Unit tests for the changed function/class
+## High-risk changes (block for review)
+
+- Ranking or scoring formula weights
+- Ingestion pipeline: parsing, enrichment, indexing
+- Notification logic: frequency limits, targeting, content filters
+- Schema migrations on large tables
+- Experiment assignment logic — incorrect assignment invalidates results
+- Authentication or session management
+- Analytics event tracking — metric definitions must stay consistent
+
+## Required before merge
+
+- [ ] Unit tests for the changed function or class
 - [ ] Integration test for any new API endpoint
-- [ ] Performance test if changing a hot path (recommendation, feed assembly)
-- [ ] Rollback plan documented in PR description
-- [ ] Feature flag for any change that affects user experience at scale
+- [ ] Performance test when changing a hot path
+- [ ] Rollback plan documented in the change description
+- [ ] Feature flag for any change affecting user experience at scale
 
-## Deployment Risk Tiers
-- **Tier 1 (Low)**: Config changes, copy changes, non-functional refactors
-- **Tier 2 (Medium)**: New features behind feature flags, minor algorithm changes
-- **Tier 3 (High)**: Recommendation model changes, notification logic, schema migrations
-- **Tier 4 (Critical)**: Auth changes, billing, data deletion pipelines
+## Deployment risk tiers
 
-Tier 3 and Tier 4 require 2 approvals and a 15-minute canary deployment before full rollout.
+- **Tier 1 (Low)** — configuration, copy, non-functional refactors
+- **Tier 2 (Medium)** — features behind flags, minor algorithm changes
+- **Tier 3 (High)** — model changes, notification logic, schema migrations
+- **Tier 4 (Critical)** — authentication, billing, data-deletion pipelines
 
-## Recommendation Engine PRs
-When reviewing recommendation engine PRs, always check:
+Tier 3 and Tier 4 require two approvals and a canary deployment before full rollout.
+
+## Ranking / recommendation changes
+
 1. Was a holdout group maintained for the experiment?
-2. Are diversity constraints preserved? (≥3 categories in top 10)
-3. Is there a feedback loop risk? (e.g., only showing content similar to what was already clicked)
-4. Has the model been tested on UP/Delhi regional datasets separately? (engagement patterns differ)
+2. Are diversity constraints preserved?
+3. Is there a feedback-loop risk from reinforcing prior engagement?
+4. Was the model evaluated on each significant segment separately, since behaviour differs?
 
-## Notification Service PRs
-Check frequency limits: no user should receive >4 notifications/day for non-breaking content.
-Check opt-out signal handling — opt-outs must propagate within 60 seconds.
+## Notification changes
 
-## Analytics Pipeline PRs
-Event schema changes must be backwards compatible. Check:
-- Old event version still parsed correctly
-- New fields are nullable (not required) for at least 2 weeks after launch
-- Dashboard queries updated if event names changed
+Check frequency limits and confirm opt-out signals propagate within the declared SLA.
+
+## Analytics pipeline changes
+
+Event schema changes must be backwards compatible:
+
+- Prior event versions still parse
+- New fields nullable for a declared transition period
+- Downstream queries updated when event names change

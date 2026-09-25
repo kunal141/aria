@@ -35,9 +35,19 @@ def _authorize(auth: AuthenticatedRequest, tenant_id: str, permission: Permissio
         return False
 
 
+# Execution modes the authenticated tenant workflow may run in.
+#
+# ``cloud_opt_in`` is deliberately excluded in M0: it requires per-tenant credential
+# handling and an egress review that have not been completed. Excluding it here means
+# a tenant workflow can never reach a cloud provider by configuration alone — the
+# same fail-closed posture the connector layer uses.
+_SUPPORTED_MODES = ("offline_mock", "local_ollama")
+
+
 def _mode() -> str | None:
+    """The active execution mode if the tenant workflow supports it, else ``None``."""
     mode = resolve_execution_mode().value
-    return mode if mode == "offline_mock" else None
+    return mode if mode in _SUPPORTED_MODES else None
 
 
 router = APIRouter(
@@ -56,7 +66,8 @@ def run_business_analysis(
         return _error(403, "authorization_denied", "Work creation is not allowed.")
     mode = _mode()
     if mode is None:
-        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
     try:
         dataset = BusinessPerformanceDataset(
             dataset_id=body.dataset_id,
@@ -89,7 +100,8 @@ def list_employee_runs(
         return _error(403, "authorization_denied", "Work inspection is not allowed.")
     mode = _mode()
     if mode is None:
-        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
     try:
         with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
             runs = runtime.employee_service(actor=auth.context.actor).list_runs()
@@ -97,6 +109,71 @@ def list_employee_runs(
     except Exception as exc:
         _log.error("tenant employee listing failed (class only): %s", type(exc).__name__)
         return _error(500, "internal_error", "Employee runs could not be listed.")
+
+
+@router.get("/employees")
+def list_employees(
+    tenant_id: str,
+    auth: AuthenticatedRequest = Depends(authenticated_request),
+):
+    if not _authorize(auth, tenant_id, Permission.work_read):
+        return _error(403, "authorization_denied", "Employee inspection is not allowed.")
+    mode = _mode()
+    if mode is None:
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
+    try:
+        with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
+            employees = runtime.employee_registry.list_employees()
+            return {
+                "employees": [
+                    {
+                        "employee": _dump(employee),
+                        "employment_record": _dump(
+                            runtime.employee_registry.employment_record(
+                                employee.employee_id
+                            )
+                        ),
+                    }
+                    for employee in employees
+                ],
+                "count": len(employees),
+            }
+    except Exception as exc:
+        _log.error("tenant employee registry listing failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "Employees could not be listed.")
+
+
+@router.get("/employees/{employee_id}")
+def inspect_employee(
+    tenant_id: str,
+    employee_id: str,
+    auth: AuthenticatedRequest = Depends(authenticated_request),
+):
+    if not _authorize(auth, tenant_id, Permission.work_read):
+        return _error(403, "authorization_denied", "Employee inspection is not allowed.")
+    mode = _mode()
+    if mode is None:
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
+    try:
+        with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
+            employee = runtime.employee_registry.get(employee_id)
+            return {
+                "employee": _dump(employee),
+                "employment_record": _dump(
+                    runtime.employee_registry.employment_record(employee_id)
+                ),
+                "status_history": [
+                    _dump(event)
+                    for event in runtime.employee_registry.status_history(employee_id)
+                ],
+            }
+    except Exception as exc:
+        if type(exc).__name__ == "EmployeeNotFound":
+            return _error(404, "employee_not_found", "Unknown employee.")
+        _log.error("tenant employee registry inspection failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "Employee could not be inspected.")
 
 
 @router.post("/{run_id}/approve-completion")
@@ -110,7 +187,8 @@ def approve_employee_completion(
         return _error(403, "authorization_denied", "Completion approval is not allowed.")
     mode = _mode()
     if mode is None:
-        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
     try:
         with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
             result = runtime.employee_service(actor=auth.context.actor).approve_completion(
@@ -130,6 +208,35 @@ def approve_employee_completion(
         return _error(500, "internal_error", "Completion approval failed safely.")
 
 
+@router.get("/{run_id}/proof-packet")
+def inspect_employee_run_proof_packet(
+    tenant_id: str,
+    run_id: str,
+    auth: AuthenticatedRequest = Depends(authenticated_request),
+):
+    if not _authorize(auth, tenant_id, Permission.work_read):
+        return _error(403, "authorization_denied", "Work inspection is not allowed.")
+    mode = _mode()
+    if mode is None:
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
+    try:
+        with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
+            result = runtime.employee_service(actor=auth.context.actor).inspect_run(run_id)
+        if not result.work_proof_packet:
+            return _error(404, "proof_packet_not_found", "The run has no proof packet yet.")
+        return {
+            "run_id": run_id,
+            "proof_packet_ref": result.run.proof_packet_ref,
+            "proof_packet": result.work_proof_packet,
+        }
+    except EmployeeRunNotFound:
+        return _error(404, "employee_run_not_found", "Unknown employee run.")
+    except Exception as exc:
+        _log.error("tenant employee proof failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "The proof packet could not be inspected.")
+
+
 @router.get("/{run_id}")
 def inspect_employee_run(
     tenant_id: str,
@@ -140,7 +247,8 @@ def inspect_employee_run(
         return _error(403, "authorization_denied", "Work inspection is not allowed.")
     mode = _mode()
     if mode is None:
-        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
     try:
         with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
             result = runtime.employee_service(actor=auth.context.actor).inspect_run(run_id)
@@ -162,7 +270,8 @@ def inspect_employee_run_ledger(
         return _error(403, "authorization_denied", "Audit inspection is not allowed.")
     mode = _mode()
     if mode is None:
-        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+        return _error(409, "offline_mode_required",
+                      "This workflow requires offline_mock or local_ollama mode.")
     try:
         with TenantRuntime(tenant_id, execution_mode=mode) as runtime:
             view = runtime.employee_service(actor=auth.context.actor).inspect_run(run_id)

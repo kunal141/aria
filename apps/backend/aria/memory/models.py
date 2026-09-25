@@ -85,7 +85,7 @@ class UserMemory(MemoryRecord):
     Examples:
     - "Kunal prefers root causes ranked by likelihood, not alphabetically"
     - "Kunal always asks for a rollback plan in PR reviews"
-    - "Kunal's Amar Ujala team uses feature flags for all recommendation changes"
+    - "The platform team uses feature flags for all ranking changes"
     """
     memory_type: MemoryType = "user"
     category: Literal["preference", "correction", "context", "pattern"] = "preference"

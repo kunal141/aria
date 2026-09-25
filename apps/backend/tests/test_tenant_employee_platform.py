@@ -182,8 +182,19 @@ def test_authenticated_employee_api_enforces_tenant_scope_and_permissions(
     )
     assert created.status_code == 201
     run_id = created.json()["run"]["run_id"]
+    employee_id = created.json()["run"]["employee_id"]
     assert client.get(base, headers=_auth(member_token)).json()["count"] == 1
     assert client.get(f"{base}/{run_id}", headers=_auth(member_token)).status_code == 200
+    proof = client.get(f"{base}/{run_id}/proof-packet", headers=_auth(member_token))
+    assert proof.status_code == 200
+    assert proof.json()["proof_packet"]["commitment_ref"] == run_id
+    employees = client.get(f"{base}/employees", headers=_auth(member_token))
+    assert employees.status_code == 200
+    assert employees.json()["count"] == 1
+    assert employees.json()["employees"][0]["employee"]["employee_id"] == employee_id
+    employee = client.get(f"{base}/employees/{employee_id}", headers=_auth(member_token))
+    assert employee.status_code == 200
+    assert employee.json()["employee"]["employee_id"] == employee_id
     assert client.get(f"{base}/{run_id}/ledger", headers=_auth(member_token)).status_code == 403
     assert client.post(
         f"{base}/{run_id}/approve-completion",
@@ -210,9 +221,14 @@ def test_authenticated_employee_api_enforces_tenant_scope_and_permissions(
     )
     assert approved.status_code == 200
     assert approved.json()["run"]["status"] == "completed"
+    record = client.get(f"{base}/employees/{employee_id}", headers=_auth(member_token))
+    assert record.json()["employment_record"]["total_runs"] == 1
+    assert record.json()["employment_record"]["passed_runs"] == 1
     assert (root / "tenants" / alpha.tenant_id / "employee_runs" / "store.sqlite").exists()
+    assert (root / "tenants" / alpha.tenant_id / "employee_registry" / "store.sqlite").exists()
     with TenantRuntime(beta.tenant_id) as beta_runtime:
         assert beta_runtime.employee_service(actor="human:owner-beta").list_runs() == []
+        assert beta_runtime.employee_registry.list_employees() == []
         assert not beta_runtime.ledger_path.exists()
 
 

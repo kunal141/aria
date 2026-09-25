@@ -15,6 +15,11 @@ services:
       CONNECTOR_PROVIDER_ALLOWLIST: ${CONNECTOR_PROVIDER_ALLOWLIST:-}
       JIRA_HOST_ALLOWLIST: ${JIRA_HOST_ALLOWLIST:-}
       ARIA_CREDENTIAL_MASTER_KEY: ${ARIA_CREDENTIAL_MASTER_KEY:-}
+      # Without this the identity boundary is unreachable: every /api/platform/*
+      # route returns 503 authentication_unavailable. Must be >= 32 bytes.
+      ARIA_PRIVATE_AUTH_SECRET: ${ARIA_PRIVATE_AUTH_SECRET:-}
+      # Legacy unauthenticated routers (/api/v2,/v3,/v4,/voice) are OFF by default.
+      ARIA_STAGING_LEGACY_API: ${ARIA_STAGING_LEGACY_API:-false}
       ARIA_LIVE_EXECUTION: "false"
     ports:
       - "127.0.0.1:8000:8000"

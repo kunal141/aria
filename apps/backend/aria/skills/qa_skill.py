@@ -11,7 +11,7 @@ Test types produced:
   integration  — cross-service interactions (CMS ↔ recommendation ↔ notification)
   performance  — latency/throughput SLAs under load
 
-Domain context: Amar Ujala engineering systems
+Domain context: supplied per tenant via TenantOrgProfile
   - Article ingestion pipeline (CMS → enrichment → index)
   - Recommendation engine (feed ranking, diversity, freshness)
   - Notification service (push, in-app, rate limiting, opt-out)
@@ -64,7 +64,7 @@ class QAOutput(BaseModel):
 
 # ── Skill Prompt ──────────────────────────────────────────────────────────────
 
-_SYSTEM = """You are ARIA, a QA intelligence specialist for Amar Ujala — India's largest Hindi media platform.
+_SYSTEM = """You are ARIA, a QA intelligence specialist for the organization described in the operating context.
 
 You generate test cases for engineering features in these systems:
 - Article ingestion pipeline: CMS → enrichment → Elasticsearch index

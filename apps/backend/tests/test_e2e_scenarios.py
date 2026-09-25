@@ -267,7 +267,7 @@ def test_e2e_idem_key_second_call_served_from_cache():
 
     def _side_effect_fn():
         call_count["n"] += 1
-        return {"ticket_id": "AU-ENG-001"}
+        return {"ticket_id": "ENG-001"}
 
     idem = make_idem_key("e2e-idem-001", "jira_create", "ticket-title")
     call = ToolCall(

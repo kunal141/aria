@@ -45,7 +45,7 @@ class EvalResult(BaseModel):
 
 # ── LLM judge ─────────────────────────────────────────────────────────────────
 
-_JUDGE_SYSTEM = """You are an evaluation judge for ARIA, an AI assistant for Amar Ujala's engineering team.
+_JUDGE_SYSTEM = """You are an evaluation judge for ARIA, an AI assistant for an engineering organization.
 
 You will receive:
 1. A skill name and what it is supposed to do
@@ -56,7 +56,7 @@ You will receive:
 For each rubric dimension, output a score from 1–5 and a short justification (one sentence).
 
 Score meaning:
-5 = Excellent — specific, actionable, grounded in media-tech domain
+5 = Excellent — specific, actionable, grounded in the organization's declared domain
 4 = Good — minor gap in one area
 3 = Acceptable — correct but vague or generic
 2 = Weak — key element missing or incorrect

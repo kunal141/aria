@@ -19,6 +19,7 @@ from aria.employee import (
     EmployeeRunIntegrityError,
     EmployeeRunStatus,
     EmployeeRunStore,
+    EmployeeRegistry,
     build_business_report,
     default_business_fixture,
     evaluate_business_report,
@@ -30,6 +31,7 @@ from aria.ledger.writer import LedgerWriter
 from aria.memory_v2.paths import PathConfinementError, aria_data_dir
 from aria.memory_v2.workspace import WorkspaceStore
 from aria.model_routing import ModelRoutingService, ModelRoutingStore
+from aria.proof import EvidenceRef, WorkProofPacket, content_hash, verify_evidence
 from aria.runtime_adapters import RuntimeAdapterService, RuntimeAdapterStore
 
 
@@ -45,9 +47,13 @@ def env(tmp_path: Path):
     workspace_store = WorkspaceStore(writer=writer, execution_mode=mode)
     routing_store = ModelRoutingStore(writer=writer, execution_mode=mode)
     adapter_store = RuntimeAdapterStore(writer=writer, execution_mode=mode)
+    employee_registry = EmployeeRegistry(
+        tmp_path / "aria_data" / "employee_registry" / "store.sqlite"
+    )
     employee_store = EmployeeRunStore(
         writer=writer, execution_mode=mode, routing_store=routing_store,
-        adapter_store=adapter_store, goal_store=goal_store, workspace_store=workspace_store)
+        adapter_store=adapter_store, goal_store=goal_store,
+        workspace_store=workspace_store, employee_registry=employee_registry)
     goal_service = GoalService(
         goal_store, workspace_store=workspace_store, execution_mode=mode, actor="human:test")
     workforce = AgentWorkforceService(
@@ -62,7 +68,7 @@ def env(tmp_path: Path):
         workforce_service=workforce, supervisor_service=supervisor,
         routing_service=routing, routing_store=routing_store,
         adapter_service=adapters, adapter_store=adapter_store, workspace_store=workspace_store,
-        actor="human:test", execution_mode=mode,
+        actor="human:test", execution_mode=mode, employee_registry=employee_registry,
     )
     yield {
         "service": service, "employee": employee_store, "goals": goal_store,
@@ -70,8 +76,12 @@ def env(tmp_path: Path):
         "adapters": adapter_store, "writer": writer, "goal_service": goal_service,
         "routing_service": routing, "adapter_service": adapters,
         "workforce": workforce, "supervisor": supervisor,
+        "employee_registry": employee_registry,
     }
-    for store in (employee_store, adapter_store, routing_store, workspace_store, goal_store):
+    for store in (
+        employee_store, employee_registry, adapter_store, routing_store,
+        workspace_store, goal_store,
+    ):
         store.close()
 
 
@@ -87,6 +97,7 @@ def _run(env, **kwargs):
 
 def _prepare_direct_run(env, run_id: str):
     dataset = default_business_fixture()
+    employee_id = _employee_id(env)
     plan = env["goal_service"].own_goal(
         "Investigate notification CTR and produce a cited report.",
         scope="analytics.business_performance")
@@ -103,7 +114,8 @@ def _prepare_direct_run(env, run_id: str):
             name="Internal Mock Runtime", adapter_type="internal_mock",
             adapter_id="rta-internal-mock", supported_task_types=["analysis"])
     run = EmployeeRun(
-        run_id=run_id, correlation_id=run_id, goal_id=plan.goal.goal_id,
+        run_id=run_id, correlation_id=run_id, employee_id=employee_id,
+        goal_id=plan.goal.goal_id,
         workspace_id=plan.goal.workspace_id, goal_text=plan.goal.raw_request,
         dataset=dataset, success_criteria=plan.goal.success_criteria,
         max_attempts=2, started_at=_now())
@@ -139,6 +151,19 @@ def _worker_id(env, goal_id: str) -> str:
         if item.status.value == "completed")
 
 
+def _employee_id(env) -> str:
+    registry = env["employee_registry"]
+    employees = registry.list_employees()
+    if employees:
+        return employees[0].employee_id
+    return registry.hire(
+        role_key="business-performance-analyst",
+        display_name="Business Performance Analyst",
+        human_sponsor="human:test",
+        department="analytics",
+    ).employee_id
+
+
 def test_metric_period_rejects_impossible_counts():
     with pytest.raises(ValidationError):
         BusinessMetricPeriod(label="bad", impressions=10, clicks=11)
@@ -164,6 +189,12 @@ def test_complete_flow_preserves_failed_attempt_and_repair(env):
     assert len(view.repair_plans) == 1
     assert view.repair_plans[0].failure_codes == ["missing_risks"]
     assert view.final_report is not None
+    assert view.run.employee_id
+    assert view.employee["employee_id"] == view.run.employee_id
+    assert view.run.proof_packet_ref
+    assert view.run.proof_packet["manifest_completeness"] == 1.0
+    assert view.run.proof_packet["critical_omissions"] == []
+    assert view.work_proof_packet["commitment_ref"] == view.run.run_id
     assert view.final_report.risks
     assert view.quality_score == 1.0
     assert view.goal["goal_id"] == view.run.goal_id
@@ -182,6 +213,108 @@ def test_complete_flow_preserves_failed_attempt_and_repair(env):
     assert view.workers[0]["status"] == "completed"
     assert {attempt.worker_assignment_id for attempt in view.attempts} == {
         view.workers[0]["assignment_id"]}
+
+
+def test_work_proof_evidence_refs_verify_against_named_sources(env):
+    view = _run(env)
+    packet = WorkProofPacket.model_validate(view.work_proof_packet)
+    assert view.final_report is not None
+    final_attempt = next(
+        attempt for attempt in view.attempts
+        if attempt.attempt_id == view.run.final_attempt_id)
+    manager_report_bytes = render_report(
+        view.final_report,
+        run_id=view.run.run_id,
+        attempt_number=final_attempt.attempt_number,
+    ).encode("utf-8")
+    dataset_bytes = view.run.dataset.model_dump_json().encode("utf-8")
+    payloads = {
+        "manager_report_artifact": manager_report_bytes,
+        **{source_ref: dataset_bytes for source_ref in view.run.dataset.source_refs},
+    }
+    for verdict in packet.verdicts:
+        for evidence_ref in verdict.evidence_refs:
+            assert evidence_ref.source in payloads
+            assert verify_evidence(evidence_ref, payloads[evidence_ref.source]) is True
+
+    metric = next(
+        verdict for verdict in packet.verdicts
+        if verdict.manifest_item_id == "ba-metric-delta-correct")
+    assert {ref.source for ref in metric.evidence_refs} == set(view.run.dataset.source_refs)
+    report_claims = [
+        verdict for verdict in packet.verdicts
+        if verdict.verdict.value == "supported"
+        and verdict.manifest_item_id != "ba-metric-delta-correct"
+    ]
+    assert any(
+        ref.source == "manager_report_artifact"
+        for verdict in report_claims
+        for ref in verdict.evidence_refs
+    )
+
+
+def test_work_proof_manifest_authoritative_source_matches_claim_evidence(monkeypatch):
+    import aria.proof as proof
+
+    captured = {}
+    original = proof.assemble_packet
+
+    def capture_manifest(**kwargs):
+        captured["manifest"] = kwargs["manifest"]
+        return original(**kwargs)
+
+    monkeypatch.setattr(proof, "assemble_packet", capture_manifest)
+    dataset = default_business_fixture()
+    report = build_business_report(dataset, attempt_number=1)
+    evaluation = evaluate_business_report(
+        run_id="run-manifest-source",
+        attempt_id="attempt-manifest-source",
+        report=report,
+        dataset=dataset,
+    )
+    EmployeeOrchestratorService._build_work_proof_packet(
+        run_id="run-manifest-source",
+        report=report,
+        dataset=dataset,
+        evaluation=evaluation,
+        rendered_report=render_report(
+            report, run_id="run-manifest-source", attempt_number=1),
+    )
+    manifest_by_id = {
+        item.manifest_item_id: item for item in captured["manifest"]}
+    assert manifest_by_id["ba-metric-delta-correct"].authoritative_source == (
+        "dataset_snapshot")
+    assert all(
+        item.authoritative_source == "manager_report_artifact"
+        for item_id, item in manifest_by_id.items()
+        if item_id != "ba-metric-delta-correct"
+    )
+
+
+def test_work_proof_packet_handles_report_without_report_evidence_refs(env):
+    dataset = default_business_fixture()
+    report = build_business_report(dataset, attempt_number=1).model_copy(
+        update={"evidence_refs": []})
+    evaluation = evaluate_business_report(
+        run_id="run-no-report-evidence",
+        attempt_id="attempt-no-report-evidence",
+        report=report,
+        dataset=dataset,
+    )
+    packet = EmployeeOrchestratorService._build_work_proof_packet(
+        run_id="run-no-report-evidence",
+        report=report,
+        dataset=dataset,
+        evaluation=evaluation,
+        rendered_report=render_report(
+            report, run_id="run-no-report-evidence", attempt_number=1),
+    )
+    assert packet.commitment_ref == "run-no-report-evidence"
+    assert packet.manifest_completeness == 1.0
+    metric = next(
+        verdict for verdict in packet.verdicts
+        if verdict.manifest_item_id == "ba-metric-delta-correct")
+    assert metric.evidence_refs
 
 
 def test_complete_flow_uses_policy_route_and_internal_mock_receipts(env):
@@ -217,6 +350,8 @@ def test_manager_view_exposes_only_declared_estimates(env):
                       if not task["approval_required"] and task["status"] == "completed"]
     assert view.estimated_minutes_saved == len(completed_work) * 5 + 5
     assert "not production ROI" in view.roi_method
+    assert view.employment_record["total_runs"] == 1
+    assert view.employment_record["passed_runs"] == 1
     assert set(task["task_id"] for task in completed_work) <= set(view.run.roi_evidence_refs)
     assert view.run.manager_report_ref in view.run.roi_evidence_refs
     assert view.evidence_refs == ["fixture://business-performance/notification-ctr-v1"]
@@ -239,6 +374,8 @@ def test_completion_requires_explicit_manager_approval(env):
     completed = env["service"].approve_completion(
         pending.run.run_id, actor="human:test-manager")
     assert completed.run.status is EmployeeRunStatus.completed
+    assert completed.employment_record["total_runs"] == 1
+    assert completed.employment_record["quality_pass_rate"] == 1.0
     assert completed.goal["status"] == "completed"
     assert all(task["status"] in {"completed", "cancelled"} for task in completed.tasks)
 
@@ -263,6 +400,9 @@ def test_retry_exhaustion_escalates_without_final_report(env):
     assert view.final_report is None
     assert view.estimated_minutes_saved == 0
     assert view.risk_level == "high"
+    assert view.employment_record["total_runs"] == 1
+    assert view.employment_record["passed_runs"] == 0
+    assert view.employment_record["escalation_count"] == 1
 
 
 @pytest.mark.parametrize("attempts", [0, 6])
@@ -278,7 +418,8 @@ def test_employee_store_is_restart_safe(env):
     reopened = EmployeeRunStore(
         path, writer=env["writer"], execution_mode="offline_mock",
         routing_store=env["routing"], adapter_store=env["adapters"],
-        goal_store=env["goals"], workspace_store=env["workspace"])
+        goal_store=env["goals"], workspace_store=env["workspace"],
+        employee_registry=env["employee_registry"])
     try:
         assert reopened.get_run(view.run.run_id) == view.run
         assert len(reopened.list_attempts(view.run.run_id)) == 2
@@ -355,7 +496,8 @@ def test_store_rejects_forged_route_reference(env):
     plan = env["goal_service"].own_goal("Analyse the fixture and report.")
     run = EmployeeRun(
         run_id="run-forged-route", correlation_id="run-forged-route",
-        goal_id=plan.goal.goal_id, workspace_id=plan.goal.workspace_id,
+        employee_id=_employee_id(env), goal_id=plan.goal.goal_id,
+        workspace_id=plan.goal.workspace_id,
         goal_text=plan.goal.raw_request, dataset=default_business_fixture(),
         success_criteria=plan.goal.success_criteria, started_at=_now())
     env["employee"].create_run(run)
@@ -363,6 +505,18 @@ def test_store_rejects_forged_route_reference(env):
         env["employee"].set_route(
             run.run_id, decision_id="route-invented", provider_id="provider-invented",
             model_id="model-invented", adapter_id="rta-internal-mock")
+
+
+def test_store_rejects_run_for_unknown_employee(env):
+    plan = env["goal_service"].own_goal("Analyse the fixture and report.")
+    run = EmployeeRun(
+        run_id="run-unknown-employee", correlation_id="run-unknown-employee",
+        employee_id="emp-not-hired", goal_id=plan.goal.goal_id,
+        workspace_id=plan.goal.workspace_id, goal_text=plan.goal.raw_request,
+        dataset=default_business_fixture(), success_criteria=plan.goal.success_criteria,
+        started_at=_now())
+    with pytest.raises(EmployeeRunIntegrityError, match="persisted employee identity"):
+        env["employee"].create_run(run)
 
 
 def test_store_recomputes_and_rejects_forged_pass_evaluation(env):
@@ -447,6 +601,55 @@ def test_store_rejects_final_artifact_that_disagrees_with_passed_attempt(env):
     assert env["employee"].get_run(run.run_id).status is EmployeeRunStatus.running
 
 
+def test_store_rejects_work_proof_evidence_that_does_not_match_named_source(env):
+    run, route, request, preview, receipt, artifact, report = _prepare_direct_run(
+        env, "run-mismatched-proof")
+    attempt = EmployeeAttempt(
+        attempt_id="attempt-valid-proof", run_id=run.run_id, attempt_number=1,
+        worker_assignment_id=_worker_id(env, run.goal_id),
+        route_decision_id=route.decision_id, adapter_request_id=request.request_id,
+        preview_receipt_id=preview.receipt_id, execution_receipt_id=receipt.receipt_id,
+        status=AttemptStatus.passed, report=report, artifact_ref=artifact, created_at=_now())
+    env["employee"].record_attempt(attempt)
+    evaluation = evaluate_business_report(
+        run_id=run.run_id, attempt_id=attempt.attempt_id, report=report, dataset=run.dataset)
+    env["employee"].record_evaluation(evaluation)
+    rendered = render_report(report, run_id=run.run_id, attempt_number=attempt.attempt_number)
+    final_ref = env["workspace"].write_artifact(
+        run.workspace_id, "valid-final-proof.md", rendered)
+    packet = EmployeeOrchestratorService._build_work_proof_packet(
+        run_id=run.run_id,
+        report=report,
+        dataset=run.dataset,
+        evaluation=evaluation,
+        rendered_report=rendered,
+    )
+    verdicts = list(packet.verdicts)
+    first_supported = next(
+        index for index, verdict in enumerate(verdicts) if verdict.evidence_refs)
+    forged_ref = EvidenceRef(
+        source=run.dataset.source_refs[0],
+        content_hash=content_hash(rendered.encode("utf-8")),
+        observed_at=_now(),
+        locator=f"{run.run_id}:manager-report",
+    )
+    verdicts[first_supported] = verdicts[first_supported].model_copy(
+        update={"evidence_refs": [forged_ref]})
+    forged = packet.model_copy(update={"verdicts": verdicts})
+    proof_ref = env["workspace"].write_artifact(
+        run.workspace_id, "forged-work-proof.json", forged.model_dump_json())
+    with pytest.raises(EmployeeRunIntegrityError, match="cited source"):
+        env["employee"].request_completion_approval(
+            run.run_id,
+            final_attempt_id=attempt.attempt_id,
+            manager_report_ref=final_ref,
+            proof_packet_ref=proof_ref,
+            proof_packet=forged,
+            approval_task_id="approval-not-yet-checked",
+        )
+    assert env["employee"].get_run(run.run_id).status is EmployeeRunStatus.running
+
+
 def test_employee_audit_outbox_recovers_without_state_divergence(env, tmp_path):
     class FailingWriter:
         def append(self, _event):
@@ -457,9 +660,11 @@ def test_employee_audit_outbox_recovers_without_state_divergence(env, tmp_path):
         tmp_path / "aria_data" / "employee_runs" / "outbox.sqlite",
         writer=FailingWriter(), execution_mode="offline_mock",
         routing_store=env["routing"], adapter_store=env["adapters"],
-        goal_store=env["goals"], workspace_store=env["workspace"])
+        goal_store=env["goals"], workspace_store=env["workspace"],
+        employee_registry=env["employee_registry"])
     run = EmployeeRun(
-        run_id="run-outbox", correlation_id="run-outbox", goal_id=plan.goal.goal_id,
+        run_id="run-outbox", correlation_id="run-outbox",
+        employee_id=_employee_id(env), goal_id=plan.goal.goal_id,
         workspace_id=plan.goal.workspace_id, goal_text=plan.goal.raw_request,
         dataset=default_business_fixture(), success_criteria=plan.goal.success_criteria,
         started_at=_now())
@@ -557,11 +762,24 @@ def test_v4_employee_api_runs_and_inspects(monkeypatch):
     assert [item["status"] for item in payload["attempts"]] == [
         "quality_failed", "passed"]
     run_id = payload["run"]["run_id"]
+    employee_id = payload["run"]["employee_id"]
+    assert payload["work_proof_packet"]["commitment_ref"] == run_id
+    proof = client.get(f"/api/v4/employee-runs/{run_id}/proof-packet")
+    assert proof.status_code == 200
+    assert proof.json()["proof_packet"]["commitment_ref"] == run_id
     approved = client.post(
         f"/api/v4/employee-runs/{run_id}/approve-completion",
         json={"decision": "approve"})
     assert approved.status_code == 200
     assert approved.json()["run"]["status"] == "completed"
+    employees = client.get("/api/v4/employee-runs/employees")
+    assert employees.status_code == 200
+    assert employees.json()["count"] == 1
+    assert employees.json()["employees"][0]["employee"]["employee_id"] == employee_id
+    assert employees.json()["employees"][0]["employment_record"]["total_runs"] == 1
+    employee = client.get(f"/api/v4/employee-runs/employees/{employee_id}")
+    assert employee.status_code == 200
+    assert employee.json()["employment_record"]["passed_runs"] == 1
     inspected = client.get(f"/api/v4/employee-runs/{run_id}")
     assert inspected.status_code == 200
     assert inspected.json()["run"]["run_id"] == run_id

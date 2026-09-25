@@ -18,6 +18,7 @@ from aria.employee import (
     BusinessMetricPeriod,
     BusinessPerformanceDataset,
     EmployeeOrchestratorService,
+    EmployeeRegistry,
     EmployeeRunNotFound,
     EmployeeRunStore,
 )
@@ -49,9 +50,10 @@ def _build_employee():
     workspaces = WorkspaceStore(execution_mode=mode)
     routing_store = ModelRoutingStore(execution_mode=mode)
     adapter_store = RuntimeAdapterStore(execution_mode=mode)
+    employee_registry = EmployeeRegistry()
     employee_store = EmployeeRunStore(
         execution_mode=mode, routing_store=routing_store, adapter_store=adapter_store,
-        goal_store=goals, workspace_store=workspaces)
+        goal_store=goals, workspace_store=workspaces, employee_registry=employee_registry)
     service = EmployeeOrchestratorService(
         employee_store,
         goal_service=GoalService(
@@ -67,8 +69,10 @@ def _build_employee():
             adapter_store, workspace_store=workspaces, execution_mode=mode, actor=who),
         adapter_store=adapter_store,
         workspace_store=workspaces, actor=who, execution_mode=mode,
+        employee_registry=employee_registry,
     )
-    return service, (employee_store, adapter_store, routing_store, workspaces, goals)
+    return service, (
+        employee_store, employee_registry, adapter_store, routing_store, workspaces, goals)
 
 
 def _close(*stores) -> None:
@@ -155,6 +159,59 @@ def list_employee_runs():
         _close(*stores)
 
 
+@v4_employee_router.get("/employees")
+def list_employees():
+    try:
+        _service, stores = _build_employee()
+    except EmployeeModeBlocked:
+        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+    employee_store = stores[1]
+    try:
+        employees = employee_store.list_employees()
+        return {
+            "employees": [
+                {
+                    "employee": _dump(employee),
+                    "employment_record": _dump(
+                        employee_store.employment_record(employee.employee_id)
+                    ),
+                }
+                for employee in employees
+            ],
+            "count": len(employees),
+        }
+    except Exception as exc:
+        _log.error("v4 employee registry listing failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "Employees could not be listed.")
+    finally:
+        _close(*stores)
+
+
+@v4_employee_router.get("/employees/{employee_id}")
+def inspect_employee(employee_id: str):
+    try:
+        _service, stores = _build_employee()
+    except EmployeeModeBlocked:
+        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+    employee_store = stores[1]
+    try:
+        employee = employee_store.get(employee_id)
+        return {
+            "employee": _dump(employee),
+            "employment_record": _dump(employee_store.employment_record(employee_id)),
+            "status_history": [
+                _dump(event) for event in employee_store.status_history(employee_id)
+            ],
+        }
+    except Exception as exc:
+        if type(exc).__name__ == "EmployeeNotFound":
+            return _error(404, "employee_not_found", "Unknown employee.")
+        _log.error("v4 employee registry inspection failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "Employee could not be inspected.")
+    finally:
+        _close(*stores)
+
+
 @v4_employee_router.post("/{run_id}/approve-completion")
 def approve_employee_completion(run_id: str, body: CompletionApprovalBody):
     """Record a local manager decision only; never execute or write externally."""
@@ -172,6 +229,30 @@ def approve_employee_completion(run_id: str, body: CompletionApprovalBody):
     except Exception as exc:
         _log.error("v4 employee approval failed (class only): %s", type(exc).__name__)
         return _error(500, "internal_error", "Completion approval failed safely.")
+    finally:
+        _close(*stores)
+
+
+@v4_employee_router.get("/{run_id}/proof-packet")
+def inspect_employee_run_proof_packet(run_id: str):
+    try:
+        service, stores = _build_employee()
+    except EmployeeModeBlocked:
+        return _error(409, "offline_mode_required", "This workflow requires offline_mock mode.")
+    try:
+        view = service.inspect_run(run_id)
+        if not view.work_proof_packet:
+            return _error(404, "proof_packet_not_found", "The run has no proof packet yet.")
+        return {
+            "run_id": run_id,
+            "proof_packet_ref": view.run.proof_packet_ref,
+            "proof_packet": view.work_proof_packet,
+        }
+    except EmployeeRunNotFound:
+        return _error(404, "employee_run_not_found", "Unknown employee run.")
+    except Exception as exc:
+        _log.error("v4 employee proof inspection failed (class only): %s", type(exc).__name__)
+        return _error(500, "internal_error", "The proof packet could not be inspected.")
     finally:
         _close(*stores)
 

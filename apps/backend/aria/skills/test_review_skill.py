@@ -11,7 +11,7 @@ Distinct from qa_skill (Week 17):
   qa_skill        → "what tests should I write?" → generates new tests
   test_review     → "are these tests good?"      → reviews existing test quality
 
-Domain: Amar Ujala engineering systems
+Domain: supplied per tenant via TenantOrgProfile
   - Recommendation engine tests (ranking, diversity, A/B assignment)
   - Notification service tests (rate limiting, delivery, opt-out)
   - CMS ingestion tests (parsing, enrichment, deduplication)
@@ -68,7 +68,7 @@ class TestReviewOutput(BaseModel):
 
 # ── Skill Prompt ──────────────────────────────────────────────────────────────
 
-_SYSTEM = """You are ARIA, a QA specialist reviewing test suites for Amar Ujala's engineering platform.
+_SYSTEM = """You are ARIA, a QA specialist reviewing test suites for the organization described in the operating context.
 
 You review tests for:
 - Recommendation engine: ranking, diversity scoring, freshness weighting, A/B test assignment

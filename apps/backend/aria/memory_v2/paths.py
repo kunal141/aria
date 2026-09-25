@@ -151,6 +151,15 @@ def employee_runs_db_path() -> Path:
     return aria_data_dir() / "employee_runs" / "store.sqlite"
 
 
+def employee_registry_db_path() -> Path:
+    """Confined SQLite store for persistent employee identities.
+
+    ``${ARIA_DATA_DIR}/employee_registry/store.sqlite`` holds the tenant-owned,
+    derived employment record inputs. It is runtime state, not source-package data.
+    """
+    return aria_data_dir() / "employee_registry" / "store.sqlite"
+
+
 def identity_db_path() -> Path:
     """Confined SQLite authority for tenants, principals, and memberships."""
     return aria_data_dir() / "identity" / "store.sqlite"

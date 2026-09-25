@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARIA Braintrust</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111315;
+      --panel: #191c1f;
+      --panel-2: #202428;
+      --line: #343a40;
+      --text: #f2f0e9;
+      --muted: #aeb4b9;
+      --claude: #d68a58;
+      --codex: #48b7a4;
+      --founder: #e3c15f;
+      --danger: #e06c75;
+      --focus: #8ab4f8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    button, textarea, select { font: inherit; letter-spacing: 0; }
+    button:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .topbar {
+      height: 64px;
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: #151719;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      background: var(--founder);
+      color: #161616;
+      font-weight: 900;
+      border-radius: 4px;
+    }
+    h1 { margin: 0; font-size: 17px; line-height: 1.2; }
+    .subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .live-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .mode-link { color: var(--text); font-size: 12px; text-decoration: none; border-bottom: 1px solid var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6d7378; }
+    .dot.running { background: var(--codex); box-shadow: 0 0 0 4px rgba(72,183,164,.12); }
+    .dot.failed { background: var(--danger); }
+    main {
+      height: calc(100vh - 64px);
+      display: grid;
+      grid-template-columns: minmax(260px, 330px) minmax(0, 1fr) 260px;
+    }
+    aside, .transcript { min-height: 0; }
+    aside {
+      padding: 20px;
+      background: var(--panel);
+      overflow-y: auto;
+    }
+    .setup { border-right: 1px solid var(--line); }
+    .details { border-left: 1px solid var(--line); }
+    .section-title {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 700; }
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #121416;
+      color: var(--text);
+      line-height: 1.45;
+    }
+    textarea.compact { min-height: 94px; }
+    .field-note { margin: 6px 0 16px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .counter { margin: 6px 0 16px; color: var(--muted); font-size: 11px; text-align: right; }
+    .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 18px; }
+    .segmented button {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      background: #151719;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .segmented button:first-child { border-radius: 5px 0 0 5px; }
+    .segmented button:last-child { border-radius: 0 5px 5px 0; border-left: 0; }
+    .segmented button.active { background: #30363b; color: var(--text); }
+    .primary, .secondary {
+      width: 100%;
+      min-height: 42px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: 800;
+    }
+    .primary { border: 1px solid #e6ca78; background: var(--founder); color: #161616; }
+    .primary:hover { background: #efd47e; }
+    .secondary { margin-top: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    .boundary {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .transcript { display: flex; flex-direction: column; background: #121416; }
+    .transcript-head {
+      min-height: 53px;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: #171a1c;
+    }
+    .phase { font-size: 13px; font-weight: 800; }
+    .phase-note { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .icon-button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .transcript-tools { display: flex; align-items: center; gap: 8px; }
+    .plan-link {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: #9dc5ff;
+      font-size: 11px;
+      text-decoration: none;
+    }
+    .plan-link[hidden] { display: none; }
+    .messages { flex: 1; overflow-y: auto; padding: 22px max(18px, 5vw) 40px; scroll-behavior: smooth; }
+    .empty { max-width: 620px; margin: 15vh auto 0; text-align: center; color: var(--muted); line-height: 1.6; }
+    .empty strong { display: block; margin-bottom: 7px; color: var(--text); font-size: 18px; }
+    .message {
+      max-width: 860px;
+      margin: 0 auto 24px;
+      border-left: 3px solid var(--line);
+      padding-left: 15px;
+    }
+    .message.claude { border-left-color: var(--claude); }
+    .message.codex { border-left-color: var(--codex); }
+    .message.founder { border-left-color: var(--founder); }
+    .message.system { border-left-color: #687078; }
+    .message-meta { display: flex; gap: 9px; align-items: baseline; margin-bottom: 8px; }
+    .speaker { font-size: 13px; font-weight: 900; }
+    .claude .speaker { color: var(--claude); }
+    .codex .speaker { color: var(--codex); }
+    .founder .speaker { color: var(--founder); }
+    .model, .time { color: var(--muted); font-size: 11px; }
+    .message-body {
+      color: #e5e3dd;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.62;
+    }
+    .cursor::after { content: ""; display: inline-block; width: 7px; height: 14px; margin-left: 3px; background: currentColor; vertical-align: -2px; animation: blink .9s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    .worker {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .worker-name { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 800; }
+    .badge { padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); font-size: 10px; }
+    .worker-model { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .progress { margin: 18px 0; }
+    .progress-row { display: grid; grid-template-columns: 16px 1fr; gap: 8px; margin: 10px 0; color: var(--muted); font-size: 11px; }
+    .progress-mark { width: 10px; height: 10px; margin-top: 2px; border: 1px solid #62696f; border-radius: 50%; }
+    .progress-row.active { color: var(--text); }
+    .progress-row.active .progress-mark { border-color: var(--founder); background: var(--founder); }
+    .progress-row.done .progress-mark { border-color: var(--codex); background: var(--codex); }
+    .session-id { color: var(--muted); font: 11px ui-monospace, monospace; overflow-wrap: anywhere; }
+    .download { display: inline-block; margin-top: 12px; color: #9dc5ff; font-size: 12px; text-decoration: none; }
+    .download[hidden] { display: none; }
+    .composer {
+      padding: 12px 18px 14px;
+      border-top: 1px solid var(--line);
+      background: #171a1c;
+    }
+    .composer-inner { max-width: 860px; margin: 0 auto; }
+    .composer label { margin-bottom: 6px; }
+    .composer textarea { min-height: 64px; max-height: 180px; resize: vertical; }
+    .composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+    .composer-status { min-width: 0; color: var(--muted); font-size: 11px; }
+    .composer-controls { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
+    .recipient-picker { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+    .recipient-picker span { padding: 0 7px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .recipient-button { min-height: 34px; padding: 0 9px; border: 0; border-left: 1px solid var(--line); background: #121517; color: var(--muted); cursor: pointer; font: 700 11px ui-monospace, monospace; }
+    .recipient-button.active { background: #2c3236; color: var(--text); }
+    .recipient-button[data-recipient="claude"].active { color: var(--claude); }
+    .recipient-button[data-recipient="codex"].active { color: var(--codex); }
+    .handoff { max-width: 860px; margin: -8px auto 12px; padding: 0 16px; color: var(--muted); font: 700 11px ui-monospace, monospace; text-align: right; }
+    .route-tag { margin-left: auto; color: var(--founder); font: 700 10px ui-monospace, monospace; }
+    .send-button {
+      min-width: 150px;
+      min-height: 36px;
+      border: 1px solid #e6ca78;
+      border-radius: 5px;
+      background: var(--founder);
+      color: #161616;
+      cursor: pointer;
+      font-weight: 800;
+    }
+    @media (max-width: 980px) {
+      main { grid-template-columns: 285px minmax(0, 1fr); }
+      .details { display: none; }
+    }
+    @media (max-width: 700px) {
+      .topbar { height: auto; min-height: 64px; padding: 12px 14px; }
+      .subtitle { display: none; }
+      main { height: auto; min-height: calc(100vh - 64px); display: block; }
+      .setup { border-right: 0; border-bottom: 1px solid var(--line); }
+      textarea { min-height: 120px; }
+      .transcript { min-height: 70vh; }
+      .messages { padding: 18px 14px 34px; }
+      .composer { padding: 12px 14px; }
+      .composer-actions { align-items: flex-end; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .messages { scroll-behavior: auto; }
+      .cursor::after { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">A</div>
+      <div>
+        <h1>ARIA Braintrust</h1>
+        <div class="subtitle">Founder-visible strategy debate / local only</div>
+      </div>
+    </div>
+    <div class="live-state"><a class="mode-link" href="/build-review">Build &amp; Review</a><span id="statusDot" class="dot"></span><span id="statusText">Ready</span></div>
+  </header>
+
+  <main>
+    <aside class="setup">
+      <h2 class="section-title">Founder question</h2>
+      <label for="question">What should the team resolve?</label>
+      <textarea id="question" maxlength="30000">What exact category should ARIA own, and what would make it a true cross-department virtual employee platform rather than another agent builder, control plane, or engineering assistant?</textarea>
+      <div id="counter" class="counter">0 / 30000</div>
+
+      <label for="contextPaths">Context files (optional)</label>
+      <textarea id="contextPaths" class="compact" maxlength="8192" placeholder="docs/ARIA_STARTUP_PLAN.md&#10;docs/V3_GOAL_DRIVEN_SELF_LEARNING_AI_EMPLOYEE_WORKFORCE.md"></textarea>
+      <div class="field-note">One repository-relative file path per line. Both workers can read and cite these files.</div>
+
+      <label>Debate depth</label>
+      <div class="segmented" role="group" aria-label="Debate rounds">
+        <button id="oneRound" class="active" type="button">1 round</button>
+        <button id="twoRounds" type="button">2 rounds</button>
+      </div>
+
+      <button id="start" class="primary" type="button">Start braintrust</button>
+      <button id="stop" class="secondary" type="button" disabled>Stop session</button>
+
+      <div class="boundary">
+        Both workers are restricted to repository reads. The console shows explicit arguments and summaries, never hidden chain-of-thought. Usage counts against both subscriptions.
+      </div>
+    </aside>
+
+    <section class="transcript" aria-label="Live braintrust transcript">
+      <div class="transcript-head">
+        <div>
+          <div id="phase" class="phase">Waiting for a founder question</div>
+          <div id="phaseNote" class="phase-note">No session is running</div>
+        </div>
+        <div class="transcript-tools">
+          <a id="downloadMarkdown" class="plan-link" href="#" hidden>Download plan</a>
+          <button id="autoScroll" class="icon-button" type="button" title="Toggle automatic scrolling" aria-pressed="true">&darr;</button>
+        </div>
+      </div>
+      <div id="messages" class="messages" aria-live="polite">
+        <div id="empty" class="empty">
+          <strong>Two models. Assigned roles. Visible disagreement.</strong>
+          Claude expands the strategic possibility space. Codex challenges claims against evidence. You make the decision.
+        </div>
+      </div>
+      <form id="composer" class="composer">
+        <div class="composer-inner">
+          <label for="founderMessage">Message the braintrust</label>
+          <textarea id="founderMessage" maxlength="12000" disabled placeholder="Challenge an assumption or ask a follow-up. Use @claude, @codex, or @both at the beginning or end."></textarea>
+          <div class="composer-actions">
+            <span id="composerStatus" class="composer-status">Start a session to join the discussion.</span>
+            <div class="composer-controls">
+              <div class="recipient-picker" role="group" aria-label="Message recipient">
+                <span>To</span>
+                <button class="recipient-button" type="button" data-recipient="claude">@Claude</button>
+                <button class="recipient-button" type="button" data-recipient="codex">@Codex</button>
+                <button class="recipient-button active" type="button" data-recipient="both">@Both</button>
+              </div>
+              <button id="sendMessage" class="send-button" type="submit" disabled>Send message</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <aside class="details">
+      <h2 class="section-title">Workers</h2>
+      <div class="worker">
+        <div class="worker-name"><span style="color:var(--claude)">Claude</span><span class="badge">READ ONLY</span></div>
+        <div class="worker-model">Claude Opus 5 / max effort<br>Venture Architect</div>
+      </div>
+      <div class="worker">
+        <div class="worker-name"><span style="color:var(--codex)">Codex</span><span class="badge">READ ONLY</span></div>
+        <div class="worker-model">GPT-5.6 Sol / xhigh<br>Evidence Challenger</div>
+      </div>
+
+      <div class="progress">
+        <h2 class="section-title">Round progress</h2>
+        <div class="progress-row" data-phase="round-1-proposal"><span class="progress-mark"></span><span>Claude proposal</span></div>
+        <div class="progress-row" data-phase="round-1-challenge"><span class="progress-mark"></span><span>Codex challenge</span></div>
+        <div class="progress-row" data-phase="round-1-rebuttal"><span class="progress-mark"></span><span>Claude rebuttal</span></div>
+        <div class="progress-row" data-phase="round-1-synthesis"><span class="progress-mark"></span><span>Codex synthesis</span></div>
+      </div>
+
+      <h2 class="section-title">Session</h2>
+      <div id="sessionId" class="session-id">Not started</div>
+      <a id="download" class="download" href="#" hidden>Export JSONL transcript</a>
+    </aside>
+  </main>
+
+  <script>
+    const question = document.querySelector('#question');
+    const contextPaths = document.querySelector('#contextPaths');
+    const counter = document.querySelector('#counter');
+    const start = document.querySelector('#start');
+    const stop = document.querySelector('#stop');
+    const oneRound = document.querySelector('#oneRound');
+    const twoRounds = document.querySelector('#twoRounds');
+    const messages = document.querySelector('#messages');
+    const empty = document.querySelector('#empty');
+    const phase = document.querySelector('#phase');
+    const phaseNote = document.querySelector('#phaseNote');
+    const statusDot = document.querySelector('#statusDot');
+    const statusText = document.querySelector('#statusText');
+    const sessionId = document.querySelector('#sessionId');
+    const download = document.querySelector('#download');
+    const downloadMarkdown = document.querySelector('#downloadMarkdown');
+    const autoScrollButton = document.querySelector('#autoScroll');
+    const composer = document.querySelector('#composer');
+    const founderMessage = document.querySelector('#founderMessage');
+    const composerStatus = document.querySelector('#composerStatus');
+    const sendMessage = document.querySelector('#sendMessage');
+    const recipientButtons = [...document.querySelectorAll('.recipient-button')];
+    const MAX_QUESTION_CHARACTERS = 30000;
+    const MAX_MESSAGE_CHARACTERS = 12000;
+    let rounds = 1;
+    let source = null;
+    let currentSession = null;
+    let activeMessage = null;
+    let autoScroll = true;
+    let lastEventId = -1;
+    let recipient = 'both';
+    const completedPhases = new Set();
+
+    const phaseNames = {
+      'round-1-proposal': 'Claude is building category theses',
+      'round-1-challenge': 'Codex is challenging the proposal',
+      'round-1-rebuttal': 'Claude is revising under criticism',
+      'round-1-synthesis': 'Codex is preparing the decision memo',
+      'round-2-alternative': 'Codex is developing the missing alternative',
+      'round-2-challenge': 'Claude is challenging the alternative',
+      'round-2-final-synthesis': 'Codex is preparing the final synthesis',
+      'founder-follow-up': 'Founder follow-up received',
+      context: 'Repository context attached',
+      completed: 'Braintrust complete',
+      failed: 'Braintrust stopped safely',
+      cancelled: 'Session cancelled'
+    };
+
+    function updateCounter() { counter.textContent = `${question.value.length} / ${MAX_QUESTION_CHARACTERS}`; }
+    updateCounter();
+    question.addEventListener('input', updateCounter);
+
+    function chooseRounds(value) {
+      rounds = value;
+      oneRound.classList.toggle('active', value === 1);
+      twoRounds.classList.toggle('active', value === 2);
+    }
+    oneRound.addEventListener('click', () => chooseRounds(1));
+    twoRounds.addEventListener('click', () => chooseRounds(2));
+
+    function chooseRecipient(value) {
+      recipient = value;
+      recipientButtons.forEach(button => button.classList.toggle('active', button.dataset.recipient === value));
+      composerStatus.textContent = `Next message will go to @${value}.`;
+    }
+    recipientButtons.forEach(button => button.addEventListener('click', () => chooseRecipient(button.dataset.recipient)));
+
+    function setStatus(value, note = '') {
+      statusText.textContent = value;
+      statusDot.className = `dot ${value === 'Running' ? 'running' : value === 'Failed' ? 'failed' : ''}`;
+      if (note) phaseNote.textContent = note;
+    }
+
+    function scrollToLatest() {
+      if (autoScroll) messages.scrollTop = messages.scrollHeight;
+    }
+
+    autoScrollButton.addEventListener('click', () => {
+      autoScroll = !autoScroll;
+      autoScrollButton.setAttribute('aria-pressed', String(autoScroll));
+      autoScrollButton.textContent = autoScroll ? '\u2193' : '\u2014';
+      if (autoScroll) scrollToLatest();
+    });
+
+    function createMessage(event) {
+      if (empty) empty.remove();
+      const block = document.createElement('article');
+      block.className = `message ${event.speaker}`;
+      block.dataset.phase = event.phase;
+      const meta = document.createElement('div');
+      meta.className = 'message-meta';
+      const speaker = document.createElement('span');
+      speaker.className = 'speaker';
+      speaker.textContent = event.speaker === 'founder' ? 'Kunal / Founder' : event.speaker === 'system' ? 'System' : event.speaker === 'claude' ? 'Claude' : 'Codex';
+      const model = document.createElement('span');
+      model.className = 'model';
+      model.textContent = event.model || '';
+      const time = document.createElement('span');
+      time.className = 'time';
+      time.textContent = new Date(event.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+      if (event.kind === 'founder_message' && event.metadata?.recipient) {
+        const route = document.createElement('span');
+        route.className = 'route-tag';
+        route.textContent = `to @${event.metadata.recipient}`;
+        meta.append(speaker, model, time, route);
+      } else {
+        meta.append(speaker, model, time);
+      }
+      const body = document.createElement('div');
+      body.className = 'message-body';
+      body.textContent = event.content || '';
+      block.append(meta, body);
+      messages.append(block);
+      scrollToLatest();
+      return {block, body};
+    }
+
+    function createHandoff(event) {
+      const line = document.createElement('div');
+      line.className = 'handoff';
+      line.textContent = `${event.speaker === 'claude' ? 'Claude' : 'Codex'} \u2192 @${event.metadata?.target || 'human'}`;
+      messages.append(line);
+      scrollToLatest();
+    }
+
+    function updateProgress(current) {
+      document.querySelectorAll('.progress-row').forEach(row => {
+        row.classList.toggle('active', row.dataset.phase === current);
+        row.classList.toggle('done', completedPhases.has(row.dataset.phase));
+      });
+    }
+
+    function handleEvent(event) {
+      if (!event.metadata?.ephemeral) lastEventId = Math.max(lastEventId, event.event_id);
+      phase.textContent = phaseNames[event.phase] || event.phase.replaceAll('-', ' ');
+      phaseNote.textContent = event.kind === 'delta' ? 'Response streaming live' : 'Explicit model output';
+      updateProgress(event.phase);
+
+      if (event.kind === 'session') {
+        createMessage(event);
+      } else if (event.kind === 'founder_message') {
+        createMessage(event);
+        composerStatus.textContent = 'Founder message added to the shared transcript.';
+      } else if (event.kind === 'status' && event.phase === 'context') {
+        createMessage(event);
+      } else if (event.kind === 'message_start') {
+        if (activeMessage) activeMessage.body.classList.remove('cursor');
+        activeMessage = createMessage(event);
+        activeMessage.body.classList.add('cursor');
+      } else if (event.kind === 'delta' && activeMessage) {
+        activeMessage.body.textContent += event.content;
+        scrollToLatest();
+      } else if (event.kind === 'message_end') {
+        if (!event.metadata?.partial) completedPhases.add(event.phase);
+        if (activeMessage) activeMessage.body.classList.remove('cursor');
+        activeMessage = null;
+        if (event.metadata?.partial) phaseNote.textContent = 'Partial response preserved for recovery';
+        updateProgress('');
+      } else if (event.kind === 'handoff') {
+        createHandoff(event);
+        phaseNote.textContent = `Handoff to @${event.metadata?.target || 'human'}`;
+      } else if (event.kind === 'error') {
+        if (activeMessage) activeMessage.body.classList.remove('cursor');
+        activeMessage = null;
+        createMessage(event);
+        finish('Failed');
+      } else if (event.kind === 'done') {
+        createMessage(event);
+        finish(event.phase === 'cancelled' ? 'Cancelled' : 'Complete');
+      }
+    }
+
+    function finish(label) {
+      setStatus(label);
+      start.disabled = false;
+      stop.disabled = true;
+      question.disabled = false;
+      contextPaths.disabled = false;
+      oneRound.disabled = false;
+      twoRounds.disabled = false;
+      const canContinue = label === 'Complete' || label === 'Failed';
+      founderMessage.disabled = !canContinue;
+      sendMessage.disabled = !canContinue;
+      composerStatus.textContent = label === 'Complete'
+        ? 'Ask a follow-up to start a new Claude/Codex response pair.'
+        : label === 'Failed'
+          ? 'Partial work is saved. Send a message to continue from the transcript, or start over.'
+          : 'Start a new session to continue.';
+      if (source) source.close();
+    }
+
+    function connectStream(after = 0) {
+      if (source) source.close();
+      source = new EventSource(`/api/braintrust/sessions/${currentSession}/events?after=${after}`);
+      ['session', 'status', 'founder_message', 'message_start', 'delta', 'message_end', 'handoff', 'error', 'done'].forEach(type => {
+        source.addEventListener(type, message => handleEvent(JSON.parse(message.data)));
+      });
+      source.onerror = () => {
+        if (!['Complete', 'Cancelled', 'Failed'].includes(statusText.textContent)) {
+          phaseNote.textContent = 'Stream reconnecting...';
+        }
+      };
+    }
+
+    async function startSession() {
+      const text = question.value.trim();
+      if (text.length < 12) {
+        phaseNote.textContent = 'Enter a question with at least 12 characters.';
+        question.focus();
+        return;
+      }
+      messages.replaceChildren();
+      activeMessage = null;
+      lastEventId = -1;
+      completedPhases.clear();
+      setStatus('Running', 'Starting dedicated read-only workers');
+      start.disabled = true;
+      stop.disabled = false;
+      question.disabled = true;
+      contextPaths.disabled = true;
+      oneRound.disabled = true;
+      twoRounds.disabled = true;
+      founderMessage.disabled = false;
+      sendMessage.disabled = false;
+      composerStatus.textContent = 'Messages sent now will be included in the next worker turn.';
+      const paths = contextPaths.value.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+      const response = await fetch('/api/braintrust/sessions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({question: text, rounds, context_paths: paths})
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        finish('Failed');
+        phaseNote.textContent = error.detail || 'Could not start the local session.';
+        return;
+      }
+      const data = await response.json();
+      currentSession = data.session_id;
+      sessionStorage.setItem('ariaBraintrustSession', currentSession);
+      history.replaceState(null, '', `?session=${encodeURIComponent(currentSession)}`);
+      sessionId.textContent = currentSession;
+      download.hidden = false;
+      download.href = `/api/braintrust/sessions/${currentSession}/export`;
+      downloadMarkdown.hidden = false;
+      downloadMarkdown.href = `/api/braintrust/sessions/${currentSession}/export.md`;
+      connectStream();
+    }
+
+    start.addEventListener('click', () => startSession().catch(() => finish('Failed')));
+    stop.addEventListener('click', async () => {
+      if (!currentSession) return;
+      stop.disabled = true;
+      await fetch(`/api/braintrust/sessions/${currentSession}/cancel`, {method: 'POST'});
+    });
+
+    composer.addEventListener('submit', async event => {
+      event.preventDefault();
+      const content = founderMessage.value.trim();
+      if (!currentSession || content.length < 2) {
+        composerStatus.textContent = 'Enter a message with at least 2 characters.';
+        founderMessage.focus();
+        return;
+      }
+      sendMessage.disabled = true;
+      const response = await fetch(`/api/braintrust/sessions/${currentSession}/messages`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content, recipient})
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        composerStatus.textContent = error.detail || 'The founder message could not be added.';
+        sendMessage.disabled = false;
+        return;
+      }
+      const result = await response.json();
+      founderMessage.value = '';
+      setStatus('Running', result.status === 'follow_up_started'
+        ? `Starting a response from @${result.recipient}`
+        : `Message queued for @${result.recipient}`);
+      stop.disabled = false;
+      founderMessage.disabled = false;
+      sendMessage.disabled = false;
+      if (!source || source.readyState === EventSource.CLOSED) connectStream(lastEventId + 1);
+    });
+
+    founderMessage.addEventListener('input', () => {
+      composerStatus.textContent = `${founderMessage.value.length} / ${MAX_MESSAGE_CHARACTERS}`;
+    });
+
+    founderMessage.addEventListener('keydown', event => {
+      if (event.ctrlKey && event.key === 'Enter') composer.requestSubmit();
+    });
+
+    async function restoreSession() {
+      const requested = new URLSearchParams(location.search).get('session');
+      const saved = requested || sessionStorage.getItem('ariaBraintrustSession');
+      if (!saved) return;
+      const response = await fetch(`/api/braintrust/sessions/${saved}`);
+      if (!response.ok) {
+        sessionStorage.removeItem('ariaBraintrustSession');
+        return;
+      }
+      const data = await response.json();
+      currentSession = saved;
+      sessionStorage.setItem('ariaBraintrustSession', currentSession);
+      question.value = data.question;
+      contextPaths.value = (data.context_paths || []).join('\n');
+      chooseRounds(data.rounds);
+      updateCounter();
+      messages.replaceChildren();
+      activeMessage = null;
+      lastEventId = -1;
+      completedPhases.clear();
+      sessionId.textContent = currentSession;
+      download.hidden = false;
+      download.href = `/api/braintrust/sessions/${currentSession}/export`;
+      downloadMarkdown.hidden = false;
+      downloadMarkdown.href = `/api/braintrust/sessions/${currentSession}/export.md`;
+      data.events.forEach(handleEvent);
+      if (data.status === 'running') {
+        setStatus('Running', 'Reconnected to the active local session');
+        start.disabled = true;
+        stop.disabled = false;
+        question.disabled = true;
+        contextPaths.disabled = true;
+        oneRound.disabled = true;
+        twoRounds.disabled = true;
+        founderMessage.disabled = false;
+        sendMessage.disabled = false;
+        connectStream(data.event_count);
+      } else if (data.status === 'failed') {
+        finish('Failed');
+      } else if (data.status === 'completed') {
+        finish('Complete');
+      } else if (data.status === 'cancelled') {
+        finish('Cancelled');
+      }
+    }
+
+    restoreSession().catch(() => {
+      sessionStorage.removeItem('ariaBraintrustSession');
+      phaseNote.textContent = 'Ready for a new local session.';
+    });
+  </script>
+</body>
+</html>

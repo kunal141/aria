@@ -7,7 +7,7 @@ ARIA's first real skill. Every skill has:
   - run()     : the skill function — Claude call + structured output
   - eval rubric (bottom of file)
 
-Domain context: Amar Ujala media platform
+Domain context: supplied per tenant via TenantOrgProfile
 Relevant KPIs: CTR, feed performance, notification CTR,
                story recommendation quality, content pipeline health
 """
@@ -54,7 +54,7 @@ class KPIOutput(BaseModel):
 # Skill Prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
-_SYSTEM = """You are ARIA, an AI analyst for Amar Ujala — one of India's largest Hindi media platforms.
+_SYSTEM = """You are ARIA, an AI analyst for the organization described in the operating context.
 
 When investigating a KPI issue, you reason about:
 - Content metrics: CTR, time-on-page, scroll depth, story engagement
@@ -79,7 +79,7 @@ Respond with ONLY valid JSON matching this exact structure:
 
 Root causes: provide 2–4 hypotheses, ranked by likelihood.
 Confidence score: 0.0 if you have no data, 0.5 if reasoning from context, 0.8+ if pattern is clear.
-Be specific to media/content platforms. Do not give generic analytics advice."""
+Be specific to the systems and metrics named in the operating context. Do not give generic analytics advice."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────

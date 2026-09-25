@@ -14,8 +14,8 @@ V1 read-only contract:
   Actual ticket creation (T4, Execute-with-Approval) arrives in Week 21
   when the Runtime Harness provides idempotency keys and a dry-run mode.
 
-Domain context: Amar Ujala engineering projects
-  AU-ENG  : Engineering (recommendation, notification, CMS, analytics, feed)
+Domain context: supplied per tenant via TenantOrgProfile
+  ENG     : Engineering (default when the operating context names no key)
   AU-QA   : Quality Assurance
   AU-DATA : Data Science / Analytics
   AU-OPS  : DevOps / Infrastructure
@@ -42,7 +42,7 @@ class JiraTicketDraft(BaseModel):
     suggested_assignee:  str = ""
     suggested_sprint:    str = ""
     blocker_for:         list[str] = []         # other tickets/services this blocks
-    project_key:         str = "AU-ENG"
+    project_key:         str = "ENG"
 
 
 # ── Input Schema ──────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ class JiraTicketDraft(BaseModel):
 class JiraInput(BaseModel):
     raw_input:        str  = Field(..., description="Natural language description of the ticket or request")
     task_id:          str  = Field(..., description="Unique task identifier from ARIAState")
-    project_key:      str  = Field(default="AU-ENG", description="Target Jira project key")
+    project_key:      str  = Field(default="ENG", description="Target Jira project key")
     read_only:        bool = Field(default=True,  description="V1: always True — never calls Jira API")
     data_sensitivity: str  = Field(default="internal",  description="Routing: public/internal/confidential/restricted")
     audience:         str  = Field(default="developer", description="Routing: developer/manager/leadership")
@@ -86,12 +86,12 @@ def _wants_create(raw_input: str) -> bool:
 
 # ── Skill Prompt ──────────────────────────────────────────────────────────────
 
-_SYSTEM = """You are ARIA, a delivery management specialist for Amar Ujala — India's largest Hindi media platform.
+_SYSTEM = """You are ARIA, a delivery management specialist for the organization described in the operating context.
 
 You create structured Jira ticket drafts from engineering team requests.
 
-Amar Ujala engineering projects:
-  AU-ENG  : Engineering — recommendation engine, notification service, CMS ingestion, analytics pipeline, feed ranking
+Delivery project keys (from the operating context):
+  ENG     : Engineering — default when the operating context names no project key
   AU-QA   : Quality Assurance
   AU-DATA : Data Science / Analytics
   AU-OPS  : DevOps / Infrastructure
@@ -125,7 +125,7 @@ Respond with ONLY valid JSON:
     "suggested_assignee": "role or team name if inferable, else empty string",
     "suggested_sprint": "current|next|empty string",
     "blocker_for": [],
-    "project_key": "AU-ENG"
+    "project_key": "ENG"
   },
   "action_taken": "draft_created",
   "approval_required": false,
@@ -253,7 +253,7 @@ Jira Skill — Eval Rubric (1–5)
 
 2 — Title too long or unclear. Only one AC item. Priority miscalibrated.
 
-1 — Generic Jira output with no Amar Ujala context. No service labels. AC absent.
+1 — Generic Jira output with no organizational context. No service labels. AC absent.
 """
 
 GOLDEN_EXAMPLES = [

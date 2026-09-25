@@ -7,7 +7,7 @@ ARIA's second real skill. Reviews pull requests for:
   - Business impact (effect on CTR, feed, notifications)
   - Missing test coverage
 
-Domain context: Amar Ujala media-tech
+Domain context: supplied per tenant via TenantOrgProfile
 Relevant systems: CMS pipelines, recommendation engine,
                   notification service, personalisation, analytics
 """
@@ -62,7 +62,7 @@ class PRReviewOutput(BaseModel):
 # Skill Prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
-_SYSTEM = """You are ARIA, an AI code reviewer for Amar Ujala — one of India's largest Hindi media platforms.
+_SYSTEM = """You are ARIA, an AI code reviewer for the organization described in the operating context.
 
 You review pull requests for the platform's core engineering systems:
 - CMS pipeline: article ingestion, enrichment, indexing

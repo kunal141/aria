@@ -28,7 +28,7 @@ skill_registry.register(
     name="kpi",
     fn=kpi_run,
     version="v1",
-    description="Investigates KPI drops and anomalies for Amar Ujala media platform",
+    description="Investigates KPI drops and anomalies for the tenant's declared metrics",
     action_tier=2,
 )
 
@@ -385,8 +385,8 @@ def _assemble_cicd_evidence(state: ARIAState) -> Optional[str]:
 def _mock_jira_create(draft) -> dict:
     """Placeholder Jira API call — real REST client in V2 (needs credentials)."""
     return {
-        "ticket_id": "AU-ENG-MOCK",
-        "url":       "https://jira.amar-ujala.internal/browse/AU-ENG-MOCK",
+        "ticket_id": "ENG-MOCK",
+        "url":       "https://jira.example.internal/browse/ENG-MOCK",
         "status":    "created (mock — real Jira API integration arrives in V2)",
     }
 
@@ -432,7 +432,7 @@ def jira_node(state: ARIAState) -> dict:
         )
         tool_result = execute(call, _mock_jira_create, result.ticket_draft)
         if tool_result.success and not tool_result.was_dry_run:
-            ticket_id = (tool_result.output or {}).get("ticket_id", "AU-ENG-???")
+            ticket_id = (tool_result.output or {}).get("ticket_id", "ENG-???")
             # Annotate skill_output with the created ticket ID
             import json as _json
             payload = _json.loads(updates["skill_output"])

@@ -18,8 +18,26 @@ def _configure(monkeypatch, tmp_path):
     monkeypatch.setenv("ARIA_CONNECTOR_MODE", "fixtures")
     monkeypatch.setenv("CONNECTOR_MODE", "fixtures")
     monkeypatch.setenv("ARIA_LIVE_EXECUTION", "false")
+    # The legacy unauthenticated routers are fail-closed by default; these tests
+    # exercise that surface, so they opt in explicitly.
+    monkeypatch.setenv("ARIA_STAGING_LEGACY_API", "true")
     reset_default_writer()
     return root
+
+
+def test_legacy_unauthenticated_routers_are_fail_closed_by_default(monkeypatch, tmp_path):
+    """Unset, empty, or malformed values must never expose the unauthenticated surface."""
+    for value in (None, "", "  ", "no", "0", "maybe"):
+        _configure(monkeypatch, tmp_path)
+        if value is None:
+            monkeypatch.delenv("ARIA_STAGING_LEGACY_API", raising=False)
+        else:
+            monkeypatch.setenv("ARIA_STAGING_LEGACY_API", value)
+        paths = {route.path for route in build_staging_app().routes}
+        assert "/api/v2/chat/sessions" not in paths, f"legacy surface exposed for {value!r}"
+        assert "/voice/run" not in paths
+        # The authenticated platform surface is always mounted.
+        assert "/api/platform/tenants/{tenant_id}/members" in paths
 
 
 def test_health_is_import_safe_and_ready_is_schema_aware(monkeypatch, tmp_path):

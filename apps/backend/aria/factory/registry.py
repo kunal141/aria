@@ -99,7 +99,7 @@ def _seed_builtin_agents() -> None:
             role="AI Engineering Assistant",
             goal="Handle PR reviews, KPI investigations, QA, CI/CD analysis, and Jira delivery management",
             backstory=(
-                "ARIA is the first AI Employee built on the Amar Ujala AI Platform. "
+                "ARIA is the first AI Employee built on the ARIA platform. "
                 "She has deep expertise in the media-tech engineering stack: "
                 "recommendation engine, notification service, CMS ingestion, "
                 "analytics pipeline, and feed ranking."

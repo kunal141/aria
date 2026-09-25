@@ -221,6 +221,8 @@ def test_v2_web_chat_enables_llm_only_for_local_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("ARIA_EXECUTION_MODE", "local_ollama")
     monkeypatch.setenv("CONNECTOR_MODE", "fixtures")
     monkeypatch.setenv("ARIA_LIVE_EXECUTION", "false")
+    # /api/v2 is a legacy unauthenticated router; fail-closed by default.
+    monkeypatch.setenv("ARIA_STAGING_LEGACY_API", "true")
     monkeypatch.setattr(
         ConversationOrchestrator,
         "_local_conversation",

@@ -1,6 +1,8 @@
 """Private-staging FastAPI composition over the accepted ARIA API surfaces."""
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -41,13 +43,26 @@ def build_staging_app() -> FastAPI:
     app.include_router(platform_employee_router)
     app.include_router(platform_integrations_router)
     app.include_router(ledger_router)
-    app.include_router(v2_router)
-    app.include_router(v3_router)
-    app.include_router(v4_router)
-    app.include_router(v4_routing_router)
-    app.include_router(v4_employee_router)
-    app.include_router(voice_router)
+    if _legacy_api_enabled():
+        # These routers carry NO token check. Anything able to reach the port gets
+        # full access, so they are mounted only when explicitly enabled. The
+        # authenticated surface (/api/platform/*) is always mounted above.
+        app.include_router(v2_router)
+        app.include_router(v3_router)
+        app.include_router(v4_router)
+        app.include_router(v4_routing_router)
+        app.include_router(v4_employee_router)
+        app.include_router(voice_router)
     return app
+
+
+def _legacy_api_enabled() -> bool:
+    """Whether to mount the legacy unauthenticated routers. Fail-closed.
+
+    Any value other than an explicit affirmative leaves them unmounted, so an unset,
+    empty, or malformed variable can never expose them.
+    """
+    return os.getenv("ARIA_STAGING_LEGACY_API", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 __all__ = ["build_staging_app"]

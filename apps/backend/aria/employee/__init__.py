@@ -18,6 +18,15 @@ from aria.employee.service import (
     build_business_report,
     default_business_fixture,
 )
+from aria.employee.registry import (
+    Employee,
+    EmployeeAlreadyHired,
+    EmployeeNotFound,
+    EmployeeRegistry,
+    EmploymentRecord,
+    EmploymentStatus,
+    StatusEvent,
+)
 from aria.employee.store import (
     EmployeeRunIntegrityError,
     EmployeeRunNotFound,
@@ -30,6 +39,8 @@ __all__ = [
     "EmployeeRunStatus", "ManagerRunView", "QualityIssue", "RepairPlan",
     "evaluate_business_report", "build_repair_plan",
     "EmployeeRunStore", "EmployeeRunNotFound", "EmployeeRunIntegrityError",
+    "Employee", "EmployeeAlreadyHired", "EmployeeNotFound", "EmployeeRegistry",
+    "EmploymentRecord", "EmploymentStatus", "StatusEvent",
     "EmployeeOrchestratorService", "build_business_report", "default_business_fixture",
     "render_report",
 ]

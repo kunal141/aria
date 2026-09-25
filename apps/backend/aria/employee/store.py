@@ -131,7 +131,7 @@ class EmployeeRunStore:
     def __init__(self, db_path: Path | str | None = None, *, writer: Any = None,
                  execution_mode: str | None = None, routing_store: Any = None,
                  adapter_store: Any = None, goal_store: Any = None,
-                 workspace_store: Any = None) -> None:
+                 workspace_store: Any = None, employee_registry: Any = None) -> None:
         self._db_path = ensure_confined(
             Path(db_path) if db_path is not None else employee_runs_db_path())
         self._writer = writer
@@ -140,6 +140,7 @@ class EmployeeRunStore:
         self._adapter_store = adapter_store
         self._goal_store = goal_store
         self._workspace_store = workspace_store
+        self._employee_registry = employee_registry
         self._conn: sqlite3.Connection | None = None
 
     @property
@@ -212,7 +213,8 @@ class EmployeeRunStore:
         return int(row["c"])
 
     def create_run(self, run: EmployeeRun, *, actor: str = "aria") -> EmployeeRun:
-        _guard_ids(run_id=run.run_id, correlation_id=run.correlation_id, goal_id=run.goal_id,
+        _guard_ids(run_id=run.run_id, correlation_id=run.correlation_id,
+                   employee_id=run.employee_id, goal_id=run.goal_id,
                    workspace_id=run.workspace_id)
         if run.correlation_id != run.run_id or run.status is not EmployeeRunStatus.running:
             raise EmployeeRunIntegrityError(
@@ -225,6 +227,15 @@ class EmployeeRunStore:
         if (self._workspace_store is None
                 or self._workspace_store.get_workspace(run.workspace_id) is None):
             raise EmployeeRunIntegrityError("employee run requires a persisted workspace")
+        if self._employee_registry is None:
+            raise EmployeeRunIntegrityError("employee registry authority is unavailable")
+        try:
+            employee = self._employee_registry.get(run.employee_id)
+        except Exception as exc:
+            raise EmployeeRunIntegrityError(
+                "employee run requires a persisted employee identity") from exc
+        if not employee.can_accept_work:
+            raise EmployeeRunIntegrityError("employee cannot accept new work")
         now = _now()
         conn = self._connect()
         with conn:
@@ -445,7 +456,8 @@ class EmployeeRunStore:
 
     def request_completion_approval(
         self, run_id: str, *, final_attempt_id: str, manager_report_ref: str,
-        approval_task_id: str, actor: str = "aria",
+        approval_task_id: str, proof_packet: Any | None = None,
+        proof_packet_ref: str | None = None, actor: str = "aria",
     ) -> EmployeeRun:
         _guard_ids(run_id=run_id, final_attempt_id=final_attempt_id,
                    manager_report_ref=manager_report_ref, approval_task_id=approval_task_id)
@@ -461,6 +473,32 @@ class EmployeeRunStore:
         if final_path.read_text(encoding="utf-8") != expected_report:
             raise EmployeeRunIntegrityError(
                 "manager artifact does not match the quality-passed report")
+        if proof_packet is None or proof_packet_ref is None:
+            raise EmployeeRunIntegrityError("completion requires a work proof packet")
+        _guard_ids(proof_packet_ref=proof_packet_ref)
+        from aria.proof import WorkProofPacket, verify_evidence
+
+        packet = WorkProofPacket.model_validate(proof_packet)
+        if (packet.commitment_ref != run_id or packet.has_critical_failure
+                or packet.manifest_completeness < 1.0):
+            raise EmployeeRunIntegrityError(
+                "completion requires a complete proof packet for this run")
+        evidence_payloads = {
+            "manager_report_artifact": expected_report.encode("utf-8"),
+            **{
+                source_ref: run.dataset.model_dump_json().encode("utf-8")
+                for source_ref in run.dataset.source_refs
+            },
+        }
+        for verdict in packet.verdicts:
+            for evidence_ref in verdict.evidence_refs:
+                payload = evidence_payloads.get(evidence_ref.source)
+                if payload is None or not verify_evidence(evidence_ref, payload):
+                    raise EmployeeRunIntegrityError(
+                        "proof packet evidence does not match its cited source")
+        proof_path = self._require_artifact(run.workspace_id, proof_packet_ref)
+        if proof_path.read_text(encoding="utf-8") != packet.model_dump_json():
+            raise EmployeeRunIntegrityError("proof artifact does not match the packet")
         tasks = self._goal_store.get_tasks(run.goal_id) if self._goal_store is not None else []
         approval = next((task for task in tasks if task.task_id == approval_task_id), None)
         if (approval is None or not approval.approval_required
@@ -478,6 +516,12 @@ class EmployeeRunStore:
             "status": EmployeeRunStatus.awaiting_approval,
             "final_attempt_id": final_attempt_id,
             "manager_report_ref": manager_report_ref,
+            "proof_packet_ref": proof_packet_ref,
+            "proof_packet": {
+                **packet.model_dump(mode="json"),
+                "manifest_completeness": packet.manifest_completeness,
+                "has_critical_failure": packet.has_critical_failure,
+            },
             "approval_task_id": approval_task_id,
         })
         conn = self._connect()
@@ -494,6 +538,7 @@ class EmployeeRunStore:
                 outcome="manager_approval_requested", action_tier=ActionTier.T3,
                 metadata={"final_attempt_id": final_attempt_id,
                           "manager_report_ref": manager_report_ref,
+                          "proof_packet_ref": proof_packet_ref,
                           "approval_task_id": approval_task_id,
                           "attempts": updated.current_attempt},
             ))
@@ -505,6 +550,7 @@ class EmployeeRunStore:
         run = self.get_run(run_id)
         if (run is None or run.status is not EmployeeRunStatus.awaiting_approval
                 or not run.final_attempt_id or not run.manager_report_ref
+                or not run.proof_packet_ref or not run.proof_packet
                 or not run.approval_task_id):
             raise EmployeeRunIntegrityError(
                 "employee run must await an explicit completion approval")
@@ -560,10 +606,12 @@ class EmployeeRunStore:
                 Responded, run_id=run_id, actor=actor, outcome="employee_run_completed",
                 metadata={"final_attempt_id": run.final_attempt_id,
                           "manager_report_ref": run.manager_report_ref,
+                          "proof_packet_ref": run.proof_packet_ref,
                           "attempts": updated.current_attempt,
                           "approval_task_id": run.approval_task_id},
             ))
         self.flush_outbox()
+        self._record_employee_outcome(updated, passed=True, escalated=False)
         return updated
 
     def escalate_run(self, run_id: str, *, reason: str, actor: str = "aria") -> EmployeeRun:
@@ -587,6 +635,7 @@ class EmployeeRunStore:
                           "reason": safe_reason},
             ))
         self.flush_outbox()
+        self._record_employee_outcome(updated, passed=False, escalated=True)
         return updated
 
     def fail_run(self, run_id: str, *, error_type: str, actor: str = "aria") -> EmployeeRun:
@@ -642,6 +691,22 @@ class EmployeeRunStore:
             "updated_at=? WHERE run_id=?",
             (run.status.value, run.current_attempt, run.max_attempts, _model_json(run),
              _iso(_now()), run.run_id),
+        )
+
+    def _record_employee_outcome(
+        self, run: EmployeeRun, *, passed: bool, escalated: bool
+    ) -> None:
+        if self._employee_registry is None:
+            return
+        attempts = self.list_attempts(run.run_id)
+        self._employee_registry.record_outcome(
+            run.employee_id,
+            run_id=run.run_id,
+            passed=passed,
+            corrected=len(attempts) > 1,
+            escalated=escalated,
+            cost=sum(attempt.declared_cost_estimate or 0.0 for attempt in attempts),
+            latency_ms=sum(attempt.declared_latency_ms for attempt in attempts),
         )
 
     def get_run(self, run_id: str) -> EmployeeRun | None:

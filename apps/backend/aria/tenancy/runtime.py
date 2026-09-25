@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self
 
-from aria.employee import EmployeeOrchestratorService, EmployeeRunStore
+from aria.employee import EmployeeOrchestratorService, EmployeeRegistry, EmployeeRunStore
 from aria.goals import AgentSupervisorService, AgentWorkforceService, GoalService, GoalStore
 from aria.identity.models import validate_structural_id
 from aria.ledger.writer import LedgerWriter
@@ -59,6 +59,9 @@ class TenantRuntime:
             writer=self.writer,
             execution_mode=execution_mode,
         )
+        self.employee_registry = EmployeeRegistry(
+            self._path("employee_registry", "store.sqlite")
+        )
         self.employee_runs = EmployeeRunStore(
             self._path("employee_runs", "store.sqlite"),
             writer=self.writer,
@@ -67,6 +70,7 @@ class TenantRuntime:
             adapter_store=self.adapters,
             goal_store=self.goals,
             workspace_store=self.workspaces,
+            employee_registry=self.employee_registry,
         )
 
     def _path(self, *parts: str) -> Path:
@@ -83,6 +87,7 @@ class TenantRuntime:
             self.routing.db_path,
             self.adapters.db_path,
             self.employee_runs.db_path,
+            self.employee_registry.db_path,
         )
 
     def credential_vault(self, cipher):
@@ -132,11 +137,13 @@ class TenantRuntime:
             workspace_store=self.workspaces,
             actor=actor,
             execution_mode=self.execution_mode,
+            employee_registry=self.employee_registry,
         )
 
     def close(self) -> None:
         for store in (
             self.employee_runs,
+            self.employee_registry,
             self.adapters,
             self.routing,
             self.goals,

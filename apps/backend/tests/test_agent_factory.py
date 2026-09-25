@@ -14,7 +14,7 @@ def _make_spec(**kwargs) -> AgentSpec:
     defaults = dict(
         name="analytics-aria",
         role="Analytics Specialist",
-        goal="Investigate KPI anomalies for Amar Ujala's media platform",
+        goal="Investigate KPI anomalies for the declared platform",
         backstory="Expert data analyst with deep knowledge of media metrics.",
         capabilities=[
             AgentCapability(skill_name="kpi",  action_tier="T2"),

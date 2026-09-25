@@ -23,7 +23,7 @@ _ENV = ("ARIA_DATA_DIR", "ARIA_LEDGER_V2_PATH", "ARIA_EXECUTION_MODE", "ARIA_USE
 
 
 def _build(writer):
-    from aria.employee import EmployeeOrchestratorService, EmployeeRunStore
+    from aria.employee import EmployeeOrchestratorService, EmployeeRegistry, EmployeeRunStore
     from aria.goals import AgentSupervisorService, AgentWorkforceService, GoalService, GoalStore
     from aria.memory_v2.workspace import WorkspaceStore
     from aria.model_routing import ModelRoutingService, ModelRoutingStore
@@ -35,9 +35,11 @@ def _build(writer):
     workspaces = WorkspaceStore(writer=writer, execution_mode=mode)
     routing_store = ModelRoutingStore(writer=writer, execution_mode=mode)
     adapter_store = RuntimeAdapterStore(writer=writer, execution_mode=mode)
+    employee_registry = EmployeeRegistry()
     employee_store = EmployeeRunStore(
         writer=writer, execution_mode=mode, routing_store=routing_store,
-        adapter_store=adapter_store, goal_store=goals, workspace_store=workspaces)
+        adapter_store=adapter_store, goal_store=goals, workspace_store=workspaces,
+        employee_registry=employee_registry)
     service = EmployeeOrchestratorService(
         employee_store,
         goal_service=GoalService(
@@ -54,8 +56,10 @@ def _build(writer):
             adapter_store, workspace_store=workspaces, execution_mode=mode, actor=actor),
         adapter_store=adapter_store,
         workspace_store=workspaces, actor=actor, execution_mode=mode,
+        employee_registry=employee_registry,
     )
-    return service, (employee_store, adapter_store, routing_store, workspaces, goals)
+    return service, (employee_store, employee_registry, adapter_store, routing_store,
+                     workspaces, goals)
 
 
 def run_demo(write=print, *, keep: bool = False) -> dict[str, Any]:
@@ -96,6 +100,7 @@ def run_demo(write=print, *, keep: bool = False) -> dict[str, Any]:
         summary.update({
             "ok": view.run.status.value == "completed",
             "run_id": view.run.run_id,
+            "employee_id": view.run.employee_id,
             "goal_id": view.run.goal_id,
             "workspace_id": view.run.workspace_id,
             "attempt_statuses": [attempt.status.value for attempt in view.attempts],
@@ -107,6 +112,10 @@ def run_demo(write=print, *, keep: bool = False) -> dict[str, Any]:
             "selected_model_id": view.run.selected_model_id,
             "selected_adapter_id": view.run.selected_adapter_id,
             "receipt_count": len(view.receipt_refs),
+            "proof_packet_ref": view.run.proof_packet_ref,
+            "proof_manifest_completeness": view.work_proof_packet.get(
+                "manifest_completeness"),
+            "employment_record_runs": view.employment_record.get("total_runs"),
             "evidence_refs": view.evidence_refs,
             "estimated_minutes_saved": view.estimated_minutes_saved,
             "ledger_event_count": len(events),
@@ -124,6 +133,8 @@ def run_demo(write=print, *, keep: bool = False) -> dict[str, Any]:
         write(f"route: {view.run.selected_provider_id}/{view.run.selected_model_id}")
         write(f"adapter: {view.run.selected_adapter_id} (internal mock only)")
         write(f"receipts: {len(view.receipt_refs)}")
+        write(f"employee: {view.run.employee_id}")
+        write(f"proof: {view.run.proof_packet_ref}")
         write(view.boundary_note)
         return summary
     finally:
